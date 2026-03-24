@@ -167,6 +167,7 @@ tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px sol
 .di-badge.noclock { background: #fef3c7; color: #92400e; }
 .di-badge.clocked { background: #f0fdf4; color: #15803d; }
 .di-badge.manual  { background: #ede9fe; color: #6d28d9; }
+.di-badge.autocorrect { background: #dbeafe; color: #1d4ed8; }
 .shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer; margin-left: 8px; transition: all .12s; vertical-align: middle; }
 .shift-filter-btn.active { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
 .mark-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
@@ -261,6 +262,12 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
       <div class="zone-sub">Drops, coverage, pickups</div>
       <div class="zone-status" id="status-shifts"></div>
     </div>
+    <div class="upload-zone" id="zone-timesheets" ondragover="dragOver(event,'zone-timesheets')" ondragleave="dragLeave('zone-timesheets')" ondrop="dropFile(event,'timesheets')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'timesheets')">
+      <div class="zone-title">🕐 Timesheets</div>
+      <div class="zone-sub">Actual clock in/out times</div>
+      <div class="zone-status" id="status-timesheets"></div>
+    </div>
     <label class="folder-btn" id="folder-btn2" style="margin-top:4px">
       <input type="file" id="folder-input2" webkitdirectory multiple accept=".xlsx,.xls,.csv" onchange="loadFolder(event,'2')">
       <span class="folder-label">📁 Point to Folder (Period 2)</span>
@@ -285,6 +292,13 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
       <div class="zone-sub">Drops, coverage, pickups</div>
       <div class="zone-status" id="status-shifts2"></div>
     </div>
+    <div class="upload-zone" id="zone-timesheets2" ondragover="dragOver(event,'zone-timesheets2')" ondragleave="dragLeave('zone-timesheets2')" ondrop="dropFile(event,'timesheets2')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'timesheets2')">
+      <div class="zone-title">🕐 Timesheets</div>
+      <div class="zone-sub">Actual clock in/out times</div>
+      <div class="zone-status" id="status-timesheets2"></div>
+    </div>
+
 
 
 
@@ -299,6 +313,8 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
       <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
     </div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled>Analyze</button>
+    <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">&#9881;&#65039; Correct WhenIWork Clock Discrepancies</button>
+    <button class="export-btn" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626">&#8593; Undo All Auto-Corrections (<span id="correction-count">0</span>)</button>
     <button class="export-btn" id="export-btn" onclick="exportReport()" disabled>Export to Excel</button>
     <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot (shareable)</button>
     <details style="margin-top:8px">
@@ -346,7 +362,8 @@ const state = {
   mode: 'attendance',
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview' },
-  overrides: new Set()  // shift keys manually marked as worked
+  overrides: new Set(),  // shift keys manually marked as worked
+  autocorrections: new Set()  // shift keys auto-corrected by discrepancy fixer
 };
 
 // ── File loading ──────────────────────────────────────────────────────────────
@@ -360,6 +377,7 @@ function detectFileType(filename) {
   if (n.includes('absence'))                          return 'absences';
   if (n.includes('worked'))                           return 'clockin';
   if (n.includes('request'))                          return 'shifts';
+  if (n.startsWith('timesheet') || n.includes('timesheet')) return 'timesheets';
   return null;
 }
 
@@ -662,6 +680,7 @@ function analyze() {
     renderMain();
     document.getElementById('export-btn').disabled = false;
     document.getElementById('snapshot-btn').disabled = false;
+    document.getElementById('correct-btn').disabled = false;
   } catch(err) {
     document.getElementById('main').insertAdjacentHTML('afterbegin',`<div class="error-box">⚠ ${err.message}</div>`);
     console.error(err);
@@ -1086,10 +1105,29 @@ function buildAttDetail(key,r) {
   // Per-employee no-clock-in filter state
   if (!state.shiftFilter) state.shiftFilter = {};
   const showOnlyNoClock = !!state.shiftFilter[key];
-  const showOldestFirst = !!state.shiftFilter[key+'_asc'];
-  const allClockIn = [...d.clockin]; // raw order is newest-first
+  const showNewestFirst = !!state.shiftFilter[key+'_asc'];
+
+  // Sort all clockin entries by date+startTime so all types intermingle chronologically
+  const MONTHS_IDX = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function shiftSortKey(s) {
+    const dm = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!dm) return 0;
+    const baseMs = Date.UTC(+dm[3], MONTHS_IDX[dm[1]]||0, +dm[2]);
+    const t = s.time ? s.time.split('–')[0].trim() : '';
+    const tm = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    let hm = 0;
+    if (tm) {
+      let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
+      if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+      if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
+      hm = (h * 60 + m) * 60000;
+    }
+    return baseMs + hm;
+  }
+
+  const allClockIn = [...d.clockin].sort((a, b) => shiftSortKey(a) - shiftSortKey(b));
   let clockin = showOnlyNoClock ? allClockIn.filter(s => !s.hasClock) : allClockIn;
-  if (showOldestFirst) clockin = [...clockin].reverse();
+  if (showNewestFirst) clockin = [...clockin].reverse();
   const noCockInCount = allClockIn.filter(s => !s.hasClock).length;
   const absences=[...d.absences], shifts=[...d.shifts];
   // Build a set of dates that have an absence entry, for quick lookup
@@ -1098,11 +1136,15 @@ function buildAttDetail(key,r) {
   const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClock?'No unclocked shifts':'No shift data'}</p>`:clockin.map(s=>{
     const sKey=`${key}|${s.date}|${s.time}`;
     const isManual = state.overrides.has(sKey);
+    const isAuto   = state.autocorrections && state.autocorrections.has(sKey);
     const hasAbsence = !s.hasClock && absenceDates.has(s.date);
     let badge, btn='';
     if (s.hasClock && isManual) {
       badge = '<span class="di-badge manual">Manually Marked</span>';
       btn   = `<button class="mark-btn undo" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">↩ Undo</button>`;
+    } else if (s.hasClock && isAuto) {
+      badge = '<span class="di-badge autocorrect">Auto-Corrected</span>';
+      btn   = `<button class="mark-btn undo" onclick="event.stopPropagation();undoAutoCorrection('${sKey.replace(/'/g,"\\'")}','${key}')">↩ Undo</button>`;
     } else if (s.hasClock) {
       badge = '<span class="di-badge clocked">Clocked In</span>';
     } else {
@@ -1136,7 +1178,7 @@ function buildAttDetail(key,r) {
     <div class="detail-section">
       <h4 class="h-attendance">
         Shift History (${allClockIn.length})
-        <button class="shift-filter-btn" onclick="event.stopPropagation();toggleShiftSort('${key}')">${showOldestFirst?'↑ Oldest first':'↓ Newest first'}</button>
+        <button class="shift-filter-btn" onclick="event.stopPropagation();toggleShiftSort('${key}')">${showNewestFirst?'↑ Newest first':'↓ Oldest first'}</button>
         ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClock?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClock?'Show all':'No clock-in only'}</button>`:''}
       </h4>
       ${clockHtml}
@@ -1368,6 +1410,192 @@ function pcSort(type,col){ const s=state.pc; const key=`${type}_${col}`; s.sortA
 function pcFilter(val){ state.pc.filterText=val; renderPrepClose(); }
 function pcIssues(val,type){ state.pc.showIssuesOnly[type]=val; renderPrepClose(); }
 
+// ── WhenIWork Clock Discrepancy Correction ────────────────────────────────────
+
+function buildTimesheetIndex() {
+  // Build a lookup: nameKey -> [{startMs, endMs}] sorted by startMs
+  // Each entry is a merged continuous block of actual clock time
+  const index = {};
+  const allTimesheets = [...(state.timesheets||[]), ...(state.timesheets2||[])];
+  if (!allTimesheets.length) return index;
+
+  const raw = {};  // nameKey -> [{startMs, endMs}]
+  for (const row of allTimesheets) {
+    const fn = (row['First Name'] || '').toString().trim();
+    const ln = (row['Last Name']  || '').toString().trim();
+    if (!fn && !ln) continue;
+    const fullName = (fn + ' ' + ln).trim();
+    const key = normName(fullName);
+    if (!key) continue;
+
+    // Parse start/end — they come as JS Date objects from XLSX
+    const startVal = row['Start Time'];
+    const endVal   = row['End Time'];
+    const toMs = v => {
+      if (v instanceof Date) return v.getTime();
+      if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
+      return null;
+    };
+    const startMs = toMs(startVal);
+    const endMs   = toMs(endVal);
+    if (startMs === null || endMs === null) continue;
+
+    if (!raw[key]) raw[key] = [];
+    raw[key].push({ startMs, endMs });
+  }
+
+  // For each person, sort and merge overlapping/adjacent blocks (within 20 min gap)
+  const GAP = 20 * 60 * 1000;
+  for (const key of Object.keys(raw)) {
+    const entries = raw[key].sort((a, b) => a.startMs - b.startMs);
+    const merged = [];
+    for (const e of entries) {
+      if (merged.length && e.startMs <= merged[merged.length-1].endMs + GAP) {
+        merged[merged.length-1].endMs = Math.max(merged[merged.length-1].endMs, e.endMs);
+      } else {
+        merged.push({ startMs: e.startMs, endMs: e.endMs });
+      }
+    }
+    index[key] = merged;
+  }
+  return index;
+}
+
+function shiftWindowMs(shift) {
+  // Convert a shift's date+time string to start/end ms
+  // shift.time is like "1pm – 4pm" or "7:30am – 11am"
+  // shift.date is like "Jan 20, 2026"
+  const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  const dateParts = shift.date ? shift.date.match(/(\w+)\s+(\d+),\s+(\d+)/) : null;
+  if (!dateParts) return null;
+  const mo = MONTHS[dateParts[1]];
+  const d  = parseInt(dateParts[2]);
+  const y  = parseInt(dateParts[3]);
+
+  const parseTime12 = (str) => {
+    if (!str) return null;
+    str = str.trim();
+    const m = str.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    if (!m) return null;
+    let h = parseInt(m[1]);
+    const min = m[2] ? parseInt(m[2]) : 0;
+    const ampm = m[3].toLowerCase();
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    return { h, min };
+  };
+
+  const timeParts = shift.time ? shift.time.split('–').map(s => s.trim()) : [];
+  if (timeParts.length < 2) return null;
+  const start = parseTime12(timeParts[0]);
+  const end   = parseTime12(timeParts[1]);
+  if (!start || !end) return null;
+
+  const startMs = Date.UTC(y, mo, d, start.h, start.min);
+  let endMs     = Date.UTC(y, mo, d, end.h, end.min);
+  // Handle midnight crossings (e.g. 8pm–12am)
+  if (endMs <= startMs) endMs += 86400000;
+  return { startMs, endMs };
+}
+
+function correctDiscrepancies() {
+  if (!state.timesheets || !state.timesheets.length) {
+    alert('Please upload the Timesheets report first.');
+    return;
+  }
+  const index = buildTimesheetIndex();
+  const TOLERANCE = 15 * 60 * 1000; // 15 min tolerance
+  let count = 0;
+  const newCorrections = new Set();
+
+  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+    const blocks = index[nameKey];
+    if (!blocks) continue;
+
+    for (const shift of detail.clockin) {
+      if (shift.hasClock) continue; // already clocked in
+      const sKey = `${nameKey}|${shift.date}|${shift.time}`;
+      if (state.autocorrections.has(sKey)) continue; // already corrected
+
+      const win = shiftWindowMs(shift);
+      if (!win) continue;
+
+      // Check if any timesheet block covers a meaningful portion of this shift
+      // A block covers this shift if it started before (or near) shift start
+      // AND ended after (or near) shift end
+      const covered = blocks.some(b =>
+        b.startMs <= win.startMs + TOLERANCE &&
+        b.endMs   >= win.endMs   - TOLERANCE
+      );
+
+      if (covered) {
+        shift.hasClock = true;
+        state.autocorrections.add(sKey);
+        newCorrections.add(nameKey);
+        count++;
+      }
+    }
+  }
+
+  // Recompute all affected employees
+  for (const nameKey of newCorrections) {
+    recomputeEmployee(nameKey);
+  }
+
+  // Update UI
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+  if (count > 0) {
+    document.getElementById('undo-corrections-btn').style.display = '';
+    alert(`Auto-corrected ${count} shift${count===1?'':'s'} across ${newCorrections.size} employee${newCorrections.size===1?'':'s'}.`);
+  } else {
+    alert('No discrepancies found matching the correction criteria.');
+  }
+}
+
+function undoAutoCorrection(shiftKey, nameKey) {
+  if (!state.autocorrections.has(shiftKey)) return;
+  state.autocorrections.delete(shiftKey);
+  const d = state.detailMap[nameKey];
+  if (d) {
+    const entry = d.clockin.find(s => shiftKey === `${nameKey}|${s.date}|${s.time}`);
+    if (entry) entry.hasClock = false;
+  }
+  recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+}
+
+function undoAllCorrections() {
+  if (!state.autocorrections.size) return;
+  const affected = new Set();
+  for (const sKey of state.autocorrections) {
+    const nameKey = sKey.split('|')[0];
+    affected.add(nameKey);
+    const d = state.detailMap[nameKey];
+    if (d) {
+      const entry = d.clockin.find(s => sKey === `${nameKey}|${s.date}|${s.time}`);
+      if (entry) entry.hasClock = false;
+    }
+  }
+  state.autocorrections.clear();
+  for (const nameKey of affected) recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+  document.getElementById('undo-corrections-btn').style.display = 'none';
+}
+
+function updateCorrectionCount() {
+  const n = state.autocorrections ? state.autocorrections.size : 0;
+  const el = document.getElementById('correction-count');
+  if (el) el.textContent = n;
+  const btn = document.getElementById('undo-corrections-btn');
+  if (btn) btn.style.display = n > 0 ? '' : 'none';
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 // ── Dynamic sticky offset calculation ────────────────────────────────────────
 function updateStickyOffsets() {
@@ -1427,6 +1655,8 @@ function exportSnapshot() {
     clockin:   state.clockin   || [],
     shifts:    state.shifts    || [],
     absences2: state.absences2 || [],
+    timesheets: state.timesheets || [],
+    timesheets2: state.timesheets2 || [],
     clockin2:  state.clockin2  || [],
     shifts2:   state.shifts2   || [],
     dateFrom:  fromStr,
@@ -1449,6 +1679,8 @@ function exportSnapshot() {
     state.clockin   = d.clockin;
     state.shifts    = d.shifts;
     state.absences2 = d.absences2 || [];
+    state.timesheets = d.timesheets || [];
+    state.timesheets2 = d.timesheets2 || [];
     state.clockin2  = d.clockin2  || [];
     state.shifts2   = d.shifts2   || [];
     // Set date filter inputs
@@ -1475,6 +1707,7 @@ function exportSnapshot() {
     document.getElementById('run-btn').disabled      = false;
     document.getElementById('export-btn').disabled   = false;
     document.getElementById('snapshot-btn').disabled = false;
+    document.getElementById('correct-btn').disabled = false;
     // Update date filter label then analyze
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
     analyze();
