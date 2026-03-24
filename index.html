@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Attendance Analyzer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -105,13 +107,13 @@ header span { font-size: 12px; color: #888; }
 /* ── Tables (shared) ── */
 .table-wrap { border: 1px solid #e5e7eb; border-radius: 5px; overflow: visible; background: #fff; }
 table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; }
-thead tr.group-row th { background: #f9fafb; padding: 5px 14px 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #bbb; border-bottom: 1px solid #f0f0f0; white-space: nowrap; position: sticky; top: 0; z-index: 12; }
+thead tr.group-row th { background: #f9fafb; padding: 5px 14px 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #bbb; border-bottom: 1px solid #f0f0f0; white-space: nowrap; position: sticky; top: 0; z-index: 12; text-align: center; }
 thead tr.group-row th.g-attendance { color: #4a8f5e; }
 thead tr.group-row th.g-absences   { color: #b45309; }
 thead tr.group-row th.g-drops      { color: #b91c1c; }
 thead tr.group-row th.g-prep       { color: #7c3aed; }
 thead tr.group-row th.g-close      { color: #0369a1; }
-thead tr.col-row th { background: #f9fafb; padding: 7px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #555; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 11; box-shadow: 0 -30px 0 0 #f9fafb; }
+thead tr.col-row th { background: #f9fafb; padding: 7px 14px; text-align: right; font-size: 11px; font-weight: 600; color: #555; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 11; box-shadow: 0 -30px 0 0 #f9fafb; }
 thead tr.col-row th.c-attendance { color: #4a8f5e; }
 thead tr.col-row th.c-absences   { color: #b45309; }
 thead tr.col-row th.c-drops      { color: #b91c1c; }
@@ -317,6 +319,18 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
     <button class="export-btn" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626">&#8593; Undo All Auto-Corrections (<span id="correction-count">0</span>)</button>
     <button class="export-btn" id="export-btn" onclick="exportReport()" disabled>Export to Excel</button>
     <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot (shareable)</button>
+    <div style="position:relative;margin-top:4px" id="worker-pdf-wrapper">
+      <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e">&#128196; Export Worker Report (PDF)</button>
+      <button class="export-btn" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e;margin-top:2px">&#128230; Export All Worker Reports (.zip)</button>
+      <div id="worker-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;margin-top:2px">
+        <div style="padding:6px 8px;border-bottom:1px solid #f3f4f6">
+          <input id="worker-search" type="text" placeholder="Search employee..." oninput="filterWorkerDropdown(this.value)"
+            style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:5px 8px;font-size:12px;outline:none"
+            onclick="event.stopPropagation()">
+        </div>
+        <div id="worker-dropdown-list" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+    </div>
     <details style="margin-top:8px">
       <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span id="tz-arrow" style="font-size:9px">▶</span> Timezone &amp; Advanced
@@ -429,26 +443,47 @@ function loadFile(e,type){const f=e.target.files[0];if(f)processFile(f,type)}
 function loadFolder(e, period) {
   period = period || '1';
   const suffix = period === '2' ? '2' : '';
-  const files = [...e.target.files].filter(f => /\.xlsx?$|\.csv$/i.test(f.name));
+  // Filter to only xlsx/xls/csv — ignores .DS_Store and other junk
+  const files = [...e.target.files].filter(f => /\.xlsx?$|\.csv$/i.test(f.name) && !f.name.startsWith('~') && !f.name.startsWith('.$') && !f.name.startsWith('.'));
   const statusEl = document.getElementById('folder-status' + suffix);
   const btnEl    = document.getElementById('folder-btn' + suffix);
   if (!files.length) { statusEl.textContent = 'no xlsx/csv found'; return; }
-  let matched = 0, unmatched = [];
+  // Only count each report type once (cap at 4 unique types)
+  const seen = new Set();
+  let matched = 0;
   files.forEach(f => {
     const type = detectFileType(f.name);
-    if (type) { processFile(f, type + suffix); matched++; }
-    else unmatched.push(f.name);
+    if (type && !seen.has(type)) {
+      seen.add(type);
+      processFile(f, type + suffix);
+      matched++;
+    }
   });
-  statusEl.textContent = matched === 3 ? '✓ 3 matched' : `${matched}/3 matched`;
-  btnEl.classList.toggle('loaded', matched === 3);
+  statusEl.textContent = matched === 4 ? '✓ 4/4 matched' : `${matched}/4 matched`;
+  btnEl.classList.toggle('loaded', matched === 4);
 }
 
 function processFile(file, type) {
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
-      const wb = XLSX.read(e.target.result, {type:'array', raw: true, cellDates: false});
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      // Timesheets need cellDates:true so Date objects come through; others use raw serials
+      const baseType = type.replace(/2$/, '');
+      const isTimesheets = baseType === 'timesheets';
+      const wb = XLSX.read(e.target.result, {type:'array', raw: !isTimesheets, cellDates: isTimesheets});
+      // For timesheets: try 'Entries' first, then fall back to any sheet with data
+      let sheetName = wb.SheetNames[0];
+      if (isTimesheets) {
+        const preferred = ['Entries', ...wb.SheetNames];
+        for (const sn of preferred) {
+          if (!wb.Sheets[sn]) continue;
+          const trial = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:null});
+          if (trial.length > 0 && trial[0]['First Name'] !== undefined) {
+            sheetName = sn; break;
+          }
+        }
+      }
+      const ws = wb.Sheets[sheetName];
       const data = XLSX.utils.sheet_to_json(ws, {defval:null});
       state[type] = data;
       document.getElementById('zone-'+type).classList.add('loaded');
@@ -652,6 +687,16 @@ function shiftDateToMs(dateVal) {
 }
 
 function analyze() {
+  // Reset auto-corrections so they get re-applied fresh after each analysis
+  state.autocorrections = new Set();
+  updateCorrectionCount();
+  const correctBtn = document.getElementById('correct-btn');
+  if (correctBtn) {
+    correctBtn.innerHTML = '&#9881;&#65039; Correct WhenIWork Clock Discrepancies';
+    correctBtn.style.background = '#eff6ff';
+    correctBtn.style.borderColor = '#93c5fd';
+    correctBtn.style.color = '#1d4ed8';
+  }
   try {
     const built = buildResults();
     state.results     = built.results;
@@ -677,10 +722,17 @@ function analyze() {
         onDateFilterChange();
       }
     }
+    // Auto-apply clock discrepancy correction if timesheets are loaded
+    if (state.timesheets && state.timesheets.length || state.timesheets2 && state.timesheets2.length) {
+      autoCorrectAfterTimesheetLoad();
+    }
     renderMain();
     document.getElementById('export-btn').disabled = false;
     document.getElementById('snapshot-btn').disabled = false;
     document.getElementById('correct-btn').disabled = false;
+    document.getElementById('worker-pdf-btn').disabled = false;
+    document.getElementById('bulk-pdf-btn').disabled = false;
+    populateWorkerDropdown();
   } catch(err) {
     document.getElementById('main').insertAdjacentHTML('afterbegin',`<div class="error-box">⚠ ${err.message}</div>`);
     console.error(err);
@@ -1017,7 +1069,7 @@ function renderAttendance() {
           </tr>
           <tr class="col-row">
             <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
-            <th onclick="attSort('name')" style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px">Employee</th>
+            <th onclick="attSort('name')" style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px;text-align:left">Employee</th>
             <th class="sep-left" onclick="attSort('total_assigned')">Assigned</th>
             <th onclick="attSort('worked')">Worked</th>
             <th onclick="attSort('no_timeclock')">No Clock-In</th>
@@ -1126,12 +1178,31 @@ function buildAttDetail(key,r) {
   }
 
   const allClockIn = [...d.clockin].sort((a, b) => shiftSortKey(a) - shiftSortKey(b));
-  let clockin = showOnlyNoClock ? allClockIn.filter(s => !s.hasClock) : allClockIn;
-  if (showNewestFirst) clockin = [...clockin].reverse();
   const noCockInCount = allClockIn.filter(s => !s.hasClock).length;
-  const absences=[...d.absences], shifts=[...d.shifts];
+  // Auto-reset the no-clock-in filter if there are no unclocked shifts left
+  if (showOnlyNoClock && noCockInCount === 0) { state.shiftFilter[key] = false; }
+  const showOnlyNoClockActive = showOnlyNoClock && noCockInCount > 0;
+  let clockin = showOnlyNoClockActive ? allClockIn.filter(s => !s.hasClock) : allClockIn;
+  if (showNewestFirst) clockin = [...clockin].reverse();
+  // Sort state for absences and shift requests (stored in shiftFilter with _abs/_req suffix)
+  if (!state.shiftFilter) state.shiftFilter = {};
+  const absNewest = !!state.shiftFilter[key+'_abs'];
+  const reqNewest = !!state.shiftFilter[key+'_req'];
+
+  const dateSortKey = (dateStr) => {
+    const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const m = dateStr && dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    return m ? Date.UTC(+m[3], MONTHS[m[1]]||0, +m[2]) : 0;
+  };
+
+  let absences = [...d.absences].sort((a,b) => dateSortKey(a.date) - dateSortKey(b.date));
+  if (absNewest) absences = [...absences].reverse();
+
+  let shifts = [...d.shifts].sort((a,b) => dateSortKey(a.date) - dateSortKey(b.date));
+  if (reqNewest) shifts = [...shifts].reverse();
+
   // Build a set of dates that have an absence entry, for quick lookup
-  const absenceDates = new Set(absences.map(a => a.date));
+  const absenceDates = new Set(d.absences.map(a => a.date));
 
   const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClock?'No unclocked shifts':'No shift data'}</p>`:clockin.map(s=>{
     const sKey=`${key}|${s.date}|${s.time}`;
@@ -1179,12 +1250,24 @@ function buildAttDetail(key,r) {
       <h4 class="h-attendance">
         Shift History (${allClockIn.length})
         <button class="shift-filter-btn" onclick="event.stopPropagation();toggleShiftSort('${key}')">${showNewestFirst?'↑ Newest first':'↓ Oldest first'}</button>
-        ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClock?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClock?'Show all':'No clock-in only'}</button>`:''}
+        ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClockActive?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClockActive?'Show all':'No clock-in only'}</button>`:''}
       </h4>
       ${clockHtml}
     </div>
-    <div class="detail-section"><h4 class="h-absences">Absences (${absences.length})</h4>${absHtml}</div>
-    <div class="detail-section"><h4 class="h-drops">Shift Requests (${shifts.length})</h4>${shiftHtml}</div>
+    <div class="detail-section">
+      <h4 class="h-absences">
+        Absences (${absences.length})
+        ${d.absences.length>1?`<button class="shift-filter-btn" onclick="event.stopPropagation();toggleSectionSort('${key}','abs')">${absNewest?'\u2191 Newest first':'\u2193 Oldest first'}</button>`:''}
+      </h4>
+      ${absHtml}
+    </div>
+    <div class="detail-section">
+      <h4 class="h-drops">
+        Shift Requests (${shifts.length})
+        ${d.shifts.length>1?`<button class="shift-filter-btn" onclick="event.stopPropagation();toggleSectionSort('${key}','req')">${reqNewest?'\u2191 Newest first':'\u2193 Oldest first'}</button>`:''}
+      </h4>
+      ${shiftHtml}
+    </div>
   </div></div>`;
 }
 
@@ -1196,6 +1279,11 @@ function toggleShiftFilter(key) {
 function toggleShiftSort(key) {
   if (!state.shiftFilter) state.shiftFilter = {};
   state.shiftFilter[key+'_asc'] = !state.shiftFilter[key+'_asc'];
+  renderAttRows();
+}
+function toggleSectionSort(key, section) {
+  if (!state.shiftFilter) state.shiftFilter = {};
+  state.shiftFilter[key+'_'+section] = !state.shiftFilter[key+'_'+section];
   renderAttRows();
 }
 
@@ -1298,7 +1386,7 @@ function renderPrepClose() {
       </tr>
       <tr class="col-row">
         <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
-        <th style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px">Employee</th>
+        <th style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px;text-align:left">Employee</th>
         <th class="sep-left c-attendance">Attendance %</th>
         <th class="c-attendance">Weekly Credits <span style="font-weight:400;color:#9ca3af;font-size:9px">(days ≥50%)</span></th>
         <th class="sep-left c-drops">Attendance %</th>
@@ -1410,6 +1498,485 @@ function pcSort(type,col){ const s=state.pc; const key=`${type}_${col}`; s.sortA
 function pcFilter(val){ state.pc.filterText=val; renderPrepClose(); }
 function pcIssues(val,type){ state.pc.showIssuesOnly[type]=val; renderPrepClose(); }
 
+// ── Worker PDF Export ─────────────────────────────────────────────────────────
+
+async function exportAllWorkerPDFs() {
+  if (!window.JSZip) { alert('JSZip not loaded yet, please try again.'); return; }
+  if (!state.results || !state.results.length) return;
+
+  const btn = document.getElementById('bulk-pdf-btn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+
+  const zip = new JSZip();
+  const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
+  let done = 0;
+
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const fromTag = (fromEl && fromEl.value) ? fromEl.value.replace(/-/g,'') : '';
+  const toTag   = (toEl   && toEl.value)   ? toEl.value.replace(/-/g,'')   : '';
+  const dateTag = fromTag && toTag ? '_' + fromTag + '-' + toTag : fromTag ? '_' + fromTag : '';
+
+  for (const r of sorted) {
+    const key = normName(r.name);
+    btn.innerHTML = `&#128230; Generating ${++done}/${sorted.length}...`;
+    try {
+      const buf = await exportWorkerPDF(key, true);
+      if (buf) {
+        const safeName = r.name.replace(/[^a-zA-Z0-9]/g,'_');
+        zip.file(safeName + '_Attendance' + dateTag + '.pdf', buf);
+      }
+    } catch(e) { console.warn('Failed PDF for', r.name, e); }
+    // Yield to UI between workers
+    await new Promise(res => setTimeout(res, 0));
+  }
+
+  btn.innerHTML = '&#128230; Compressing...';
+  const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'worker_reports' + dateTag + '.zip';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  btn.innerHTML = origText;
+  btn.disabled = false;
+}
+
+function populateWorkerDropdown() {
+  const list = document.getElementById('worker-dropdown-list');
+  if (!list || !state.results) return;
+  const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
+  list.innerHTML = sorted.map(r => {
+    const key = normName(r.name);
+    const risk = r.pct !== null && r.pct < 80;
+    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f9fafb" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+      <span style="font-weight:600">${esc(r.name)}</span>
+      ${risk ? '<span style="font-size:10px;background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:#16a34a;font-weight:600">'+r.pct+'%</span>' : '')}
+    </div>`;
+  }).join('');
+}
+
+function toggleWorkerDropdown() {
+  const dd = document.getElementById('worker-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' ? '' : 'none';
+  if (dd.style.display !== 'none') {
+    // Clear search and show all on open
+    const search = document.getElementById('worker-search');
+    if (search) { search.value = ''; filterWorkerDropdown(''); setTimeout(() => search.focus(), 30); }
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', function closeDD(e) {
+        if (!document.getElementById('worker-pdf-wrapper').contains(e.target)) {
+          dd.style.display = 'none';
+          document.removeEventListener('click', closeDD);
+        }
+      });
+    }, 10);
+  }
+}
+
+function filterWorkerDropdown(q) {
+  if (!state.results) return;
+  const list = document.getElementById('worker-dropdown-list');
+  if (!list) return;
+  const lq = q.toLowerCase();
+  const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
+  const filtered = lq ? sorted.filter(r => r.name.toLowerCase().includes(lq)) : sorted;
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:#9ca3af">No matches</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(r => {
+    const key = normName(r.name);
+    const risk = r.pct !== null && r.pct < 80;
+    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f9fafb" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+      <span style="font-weight:600">${esc(r.name)}</span>
+      ${risk ? '<span style="font-size:10px;background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:#16a34a;font-weight:600">'+r.pct+'%</span>' : '')}
+    </div>`;
+  }).join('');
+}
+
+async function exportWorkerPDF(nameKey, returnBlob) {
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { alert('PDF library not loaded yet, please try again.'); return; }
+
+  const result = state.results.find(r => normName(r.name) === nameKey);
+  const detail = state.detailMap[nameKey];
+  if (!result || !detail) return;
+
+  const pcData = state.prepCloseData ? state.prepCloseData.find(e => e.key === nameKey) : null;
+
+  // ── Colours & helpers ──────────────────────────────────────────────────
+  const C = {
+    white:    [255,255,255],
+    bg:       [248,248,246],
+    border:   [229,231,235],
+    text:     [26,26,26],
+    muted:    [107,114,128],
+    green:    [22,163,74],
+    greenBg:  [240,253,244],
+    amber:    [146,64,14],
+    amberBg:  [255,251,235],
+    red:      [185,28,28],
+    redBg:    [255,245,245],
+    blue:     [29,78,216],
+    blueBg:   [239,246,255],
+    purple:   [109,28,209],
+    purpleBg: [237,233,254],
+    prep:     [124,58,237],
+    close:    [3,105,161],
+  };
+
+  const doc = new jsPDF({ unit:'pt', format:'a4' });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const ML = 36, MR = 36, MT = 36;
+  const CW = PW - ML - MR;
+  let y = MT;
+
+  function newPage() {
+    doc.addPage();
+    y = MT;
+    // subtle header bar on subsequent pages
+    doc.setFillColor(...C.bg);
+    doc.rect(0,0,PW,28,'F');
+    doc.setFontSize(8); doc.setTextColor(...C.muted);
+    doc.text(result.name + ' — Attendance Report', ML, 18);
+    y = 40;
+  }
+
+  function checkY(needed) { if (y + needed > PH - 36) newPage(); }
+
+  function sectionTitle(txt, color) {
+    checkY(28);
+    doc.setFillColor(...(color || C.bg));
+    doc.roundedRect(ML, y, CW, 22, 3, 3, 'F');
+    doc.setFontSize(10); doc.setFont(undefined,'bold');
+    doc.setTextColor(...(color === C.bg ? C.muted : C.white));
+    doc.text(txt.toUpperCase(), ML+10, y+15);
+    y += 28;
+  }
+
+  function pill(txt, textColor, bgColor, x, py, w) {
+    doc.setFillColor(...bgColor);
+    doc.roundedRect(x, py-10, w, 14, 3, 3, 'F');
+    doc.setFontSize(8); doc.setFont(undefined,'bold');
+    doc.setTextColor(...textColor);
+    doc.text(txt, x + w/2, py, {align:'center'});
+  }
+
+  // ── PAGE 1: HEADER ────────────────────────────────────────────────────
+  // Name banner
+  const risk = result.pct !== null && result.pct < 80;
+  doc.setFillColor(...(risk ? [254,242,242] : [240,253,244]));
+  doc.rect(0, 0, PW, 80, 'F');
+  doc.setFillColor(...(risk ? [185,28,28] : [22,163,74]));
+  doc.rect(0, 0, 6, 80, 'F');
+
+  doc.setFontSize(22); doc.setFont(undefined,'bold');
+  doc.setTextColor(...C.text);
+  doc.text(result.name, ML+6, 34);
+
+  doc.setFontSize(11); doc.setFont(undefined,'normal');
+  doc.setTextColor(...C.muted);
+
+  // Date range
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const dateRange = (fromEl && fromEl.value && toEl && toEl.value)
+    ? fromEl.value + ' to ' + toEl.value : 'Full date range';
+  doc.text('Attendance Report  •  ' + dateRange, ML+6, 52);
+
+  if (risk) {
+    pill('AT RISK', C.white, C.red, ML+6, 70, 52);
+  }
+  // Big attendance % on right
+  const pctStr = result.pct !== null ? result.pct + '%' : 'N/A';
+  doc.setFontSize(36); doc.setFont(undefined,'bold');
+  doc.setTextColor(...(risk ? C.red : C.green));
+  doc.text(pctStr, PW - MR - 8, 52, {align:'right'});
+  doc.setFontSize(9); doc.setFont(undefined,'normal');
+  doc.setTextColor(...C.muted);
+  doc.text('Attendance', PW - MR - 8, 66, {align:'right'});
+
+  y = 96;
+
+  // ── SUMMARY STATS CARDS ────────────────────────────────────────────────
+  const stats = [
+    ['Assigned Shifts', result.total_assigned, null],
+    ['Worked Shifts',   result.worked,          null],
+    ['No Clock-In',     result.no_timeclock,    result.no_timeclock > 0 ? C.amberBg : null],
+    ['Self-Reported Absences', result.abs_self, result.abs_self > 0 ? C.amberBg : null],
+    ['Staff-Marked Absences',  result.abs_staff, result.abs_staff > 0 ? C.redBg : null],
+    ['Shifts Dropped',  result.dropped,         result.dropped > 0 ? C.amberBg : null],
+    ['Uncovered Drops', result.uncovered,       result.uncovered > 0 ? C.redBg : null],
+  ];
+  const cardW = (CW - 12) / 4;
+  const cardH = 54;
+  stats.forEach((s, i) => {
+    const col = i % 4, row = Math.floor(i / 4);
+    if (i > 0 && col === 0) y += cardH + 6;
+    const cx = ML + col * (cardW + 4);
+    const cy = y;
+    doc.setFillColor(...(s[2] || C.bg));
+    doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'F');
+    doc.setFillColor(...C.border);
+    doc.roundedRect(cx, cy, cardW, cardH, 4, 4, 'S');
+    doc.setFontSize(20); doc.setFont(undefined,'bold');
+    doc.setTextColor(...C.text);
+    doc.text(String(s[1] !== undefined ? s[1] : '—'), cx + cardW/2, cy+28, {align:'center'});
+    doc.setFontSize(8); doc.setFont(undefined,'normal');
+    doc.setTextColor(...C.muted);
+    const lines = s[0].split('\n');
+    lines.forEach((l, li) => doc.text(l, cx + cardW/2, cy+38+li*9, {align:'center'}));
+  });
+  y += cardH + 16;
+
+  // ── SHIFT HISTORY ─────────────────────────────────────────────────────
+  sectionTitle('Shift History (' + detail.clockin.length + ' shifts)', [71,85,105]);
+
+  // Sort chronologically
+  const MONTHS_IDX2 = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function shiftSortKey2(s) {
+    const dm = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!dm) return 0;
+    const base = Date.UTC(+dm[3], MONTHS_IDX2[dm[1]]||0, +dm[2]);
+    const t = s.time ? s.time.split('–')[0].trim() : '';
+    const tm = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    let hm = 0;
+    if (tm) {
+      let h = parseInt(tm[1]), m = tm[2]?parseInt(tm[2]):0;
+      if (tm[3].toLowerCase()==='pm' && h<12) h+=12;
+      if (tm[3].toLowerCase()==='am' && h===12) h=0;
+      hm = (h*60+m)*60000;
+    }
+    return base + hm;
+  }
+  const shifts = [...detail.clockin].sort((a,b) => shiftSortKey2(a)-shiftSortKey2(b));
+
+  const colW = [82, 100, 55, 90, CW-82-100-55-90-8];
+  const rowH = 20;
+  // Header row
+  checkY(rowH+4);
+  doc.setFillColor(241,245,249);
+  doc.rect(ML, y, CW, rowH, 'F');
+  doc.setFontSize(8); doc.setFont(undefined,'bold'); doc.setTextColor(...C.muted);
+  ['Date','Time','Hours','Location','Status'].forEach((h,i) => {
+    doc.text(h, ML + colW.slice(0,i).reduce((a,b)=>a+b,0) + 4, y+13);
+  });
+  y += rowH;
+
+  shifts.forEach((s, si) => {
+    checkY(rowH+2);
+    const isManual = state.overrides.has(`${nameKey}|${s.date}|${s.time}`);
+    const isAuto   = state.autocorrections && state.autocorrections.has(`${nameKey}|${s.date}|${s.time}`);
+
+    let statusTxt, statusBg, statusFg;
+    if (s.hasClock && isManual)     { statusTxt='Manually Marked'; statusBg=C.purpleBg; statusFg=C.purple; }
+    else if (s.hasClock && isAuto)  { statusTxt='Auto-Corrected';  statusBg=C.blueBg;   statusFg=C.blue; }
+    else if (s.hasClock)            { statusTxt='Clocked In';      statusBg=C.greenBg;  statusFg=C.green; }
+    else                            { statusTxt='No Clock-In';     statusBg=C.amberBg;  statusFg=C.amber; }
+
+    // Alternating row bg
+    if (si % 2 === 0) { doc.setFillColor(249,250,251); doc.rect(ML,y,CW,rowH,'F'); }
+
+    doc.setFontSize(9); doc.setFont(undefined, s.hasClock ? 'normal' : 'bold');
+    doc.setTextColor(...(s.hasClock ? C.text : C.amber));
+
+    let x = ML;
+    doc.text(s.date||'', x+4, y+13); x += colW[0];
+    doc.setFont(undefined,'normal');
+    doc.setTextColor(...C.text);
+    doc.text(s.time||'', x+4, y+13); x += colW[1];
+    doc.text(s.length||'', x+4, y+13); x += colW[2];
+    const siteTxt = [s.site, s.position].filter(Boolean).join(' · ');
+    doc.text(siteTxt.length > 22 ? siteTxt.slice(0,21)+'…' : siteTxt, x+4, y+13); x += colW[3];
+
+    // Status pill
+    const pillW = 80;
+    doc.setFillColor(...statusBg);
+    doc.roundedRect(x+2, y+4, pillW, 12, 3, 3, 'F');
+    doc.setFontSize(7.5); doc.setFont(undefined,'bold'); doc.setTextColor(...statusFg);
+    doc.text(statusTxt, x+2+pillW/2, y+13, {align:'center'});
+
+    if (s.notes) {
+      y += rowH;
+      checkY(14);
+      doc.setFontSize(7.5); doc.setFont(undefined,'italic'); doc.setTextColor(...C.muted);
+      doc.text('  Note: ' + (s.notes.length>80 ? s.notes.slice(0,79)+'...' : s.notes), ML+4, y+10);
+    }
+    y += rowH;
+  });
+
+  y += 12;
+
+  // ── ABSENCES ──────────────────────────────────────────────────────────
+  if (detail.absences.length > 0) {
+    checkY(40);
+    sectionTitle('Absences (' + detail.absences.length + ')', [71,85,105]);
+    // Sort chronologically
+    const sortedAbsences = [...detail.absences].sort((a,b) => { const MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11}; const mk=s=>{const m=s&&s.match(/(\w+)\s+(\d+),\s+(\d+)/);return m?Date.UTC(+m[3],MONTHS[m[1]]||0,+m[2]):0;}; return mk(a.date)-mk(b.date); });
+    sortedAbsences.forEach(a => {
+      checkY(rowH+2);
+      const isSelf = a.isSelf;
+      doc.setFillColor(...(isSelf ? C.amberBg : C.redBg));
+      doc.roundedRect(ML, y, CW, rowH+4, 3, 3, 'F');
+      doc.setFontSize(9); doc.setFont(undefined,'bold'); doc.setTextColor(...C.text);
+      doc.text(a.date||'', ML+8, y+13);
+      doc.setFont(undefined,'normal');
+      doc.text(a.time||'', ML+100, y+13);
+      const typeTxt = isSelf ? 'Self-Reported' : 'Staff-Marked';
+      const typeColor = isSelf ? C.amber : C.red;
+      pill(typeTxt, typeColor, isSelf ? C.amberBg : C.redBg, ML+220, y+13, 82);
+      doc.setFillColor(...(isSelf ? [146,64,14] : C.red));
+      doc.roundedRect(ML+220, y+3, 82, 12, 3, 3, 'S');
+      if (a.note) {
+        y += rowH+4;
+        checkY(14);
+        doc.setFontSize(7.5); doc.setFont(undefined,'italic'); doc.setTextColor(...C.muted);
+        doc.text('  ' + (a.note.length>90 ? a.note.slice(0,89)+'…' : a.note), ML+8, y+10);
+      }
+      y += rowH+8;
+    });
+    y += 4;
+  }
+
+  // ── SHIFT REQUESTS ───────────────────────────────────────────────────
+  if (detail.shifts.length > 0) {
+    checkY(40);
+    sectionTitle('Shift Requests (' + detail.shifts.length + ')', [71,85,105]);
+    const MONTHS_SR = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const sortedShifts = [...detail.shifts].sort((a,b) => {
+      const mk = s => { const m=s&&s.match(/(\w+)\s+(\d+),\s+(\d+)/); return m?Date.UTC(+m[3],MONTHS_SR[m[1]]||0,+m[2]):0; };
+      return mk(a.date) - mk(b.date);
+    });
+    sortedShifts.forEach(s => {
+      checkY(rowH + 6);
+      const isPickup = s.type === 'pickup';
+      const isSwap   = s.type === 'swap';
+      const typeTxt  = isPickup ? 'Covered for Others' : isSwap ? 'Swap' : 'Drop';
+      const typeBg   = isPickup ? C.greenBg : isSwap ? C.blueBg : C.redBg;
+      const typeFg   = isPickup ? C.green   : isSwap ? C.blue  : C.red;
+
+      doc.setFillColor(...typeBg);
+      doc.roundedRect(ML, y, CW, rowH+4, 3, 3, 'F');
+
+      doc.setFontSize(9); doc.setFont(undefined,'bold'); doc.setTextColor(...C.text);
+      doc.text(s.date||'', ML+8, y+13);
+      doc.setFont(undefined,'normal');
+      doc.text(s.time||'', ML+100, y+13);
+
+      // Type pill
+      const pillW2 = isPickup ? 90 : 44;
+      doc.setFillColor(...typeBg);
+      doc.roundedRect(ML+210, y+3, pillW2, 12, 3, 3, 'F');
+      doc.setFillColor(...typeFg);
+      doc.roundedRect(ML+210, y+3, pillW2, 12, 3, 3, 'S');
+      doc.setFontSize(7.5); doc.setFont(undefined,'bold'); doc.setTextColor(...typeFg);
+      doc.text(typeTxt, ML+210+pillW2/2, y+13, {align:'center'});
+
+      // Status
+      if (s.status) {
+        doc.setFontSize(8); doc.setFont(undefined,'normal'); doc.setTextColor(...C.muted);
+        doc.text(s.status, ML+210+pillW2+6, y+13);
+      }
+
+      // Coverage info
+      if (s.acceptedBy || s.coveredFor) {
+        y += rowH+4;
+        checkY(14);
+        doc.setFontSize(8); doc.setFont(undefined,'normal'); doc.setTextColor(...C.muted);
+        const coverTxt = s.acceptedBy ? 'Covered by: ' + s.acceptedBy : 'Covered for: ' + s.coveredFor;
+        doc.text('  ' + coverTxt, ML+8, y+10);
+      }
+      if (s.message) {
+        y += (s.acceptedBy || s.coveredFor) ? 12 : rowH+4;
+        checkY(14);
+        doc.setFontSize(7.5); doc.setFont(undefined,'italic'); doc.setTextColor(...C.muted);
+        doc.text('  ' + (s.message.length>90 ? s.message.slice(0,89)+'...' : s.message), ML+8, y+10);
+      }
+      y += rowH+8;
+    });
+    y += 4;
+  }
+
+  // ── PREP & CLOSING ────────────────────────────────────────────────────
+  if (pcData) {
+    function renderPCSection(label, color, empData) {
+      if (!empData || empData.totalAll === 0) return;
+      checkY(40);
+      doc.setFillColor(...color);
+      doc.roundedRect(ML, y, CW, 22, 3, 3, 'F');
+      doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.setTextColor(...C.white);
+      const pct = empData.overallPct !== null ? empData.overallPct + '%' : 'N/A';
+      doc.text(label, ML+10, y+15);
+      doc.text('Overall: ' + pct, PW-MR-8, y+15, {align:'right'});
+      y += 28;
+
+      empData.commitments.forEach(c => {
+        checkY(rowH*2+8);
+        const pctColor = !c.recurring ? C.muted : c.pct>=80 ? C.green : c.pct>=50 ? C.amber : C.red;
+        const commitBg = !c.recurring ? C.bg : c.pct>=80 ? C.greenBg : c.pct>=50 ? C.amberBg : C.redBg;
+        doc.setFillColor(...commitBg);
+        doc.roundedRect(ML, y, CW, rowH, 3, 3, 'F');
+        doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.setTextColor(...C.text);
+        doc.text(c.dow + (c.recurring ? '' : ' (one-time)'), ML+8, y+13);
+        if (c.recurring) {
+          doc.setTextColor(...pctColor);
+          doc.text(c.pct + '%  ' + c.worked + '/' + c.total + ' shifts', PW-MR-8, y+13, {align:'right'});
+        }
+        y += rowH+2;
+
+        // Shift list
+        c.shifts.forEach(s => {
+          checkY(16);
+          const dotColor = s.hasClock ? C.green : C.red;
+          doc.setFillColor(...dotColor);
+          doc.circle(ML+14, y+7, 3, 'F');
+          doc.setFontSize(8); doc.setFont(undefined,'normal');
+          doc.setTextColor(...(s.hasClock ? C.text : C.amber));
+          const line = s.date + '  ·  ' + s.startLabel + (s.site ? '  ·  ' + s.site : '') + (!s.hasClock ? '  — NO CLOCK-IN' : '');
+          doc.text(line, ML+22, y+10);
+          y += 14;
+        });
+        y += 6;
+      });
+      y += 8;
+    }
+    checkY(40);
+    sectionTitle('Prep & Closing Shifts', [71,85,105]);
+    renderPCSection('Morning Prep', C.prep, pcData.hasPrep ? pcData.prep : null);
+    renderPCSection('Closing', C.close, pcData.hasClose ? pcData.close : null);
+  }
+
+  // ── Footer on all pages ────────────────────────────────────────────────
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFillColor(...C.bg);
+    doc.rect(0, PH-24, PW, 24, 'F');
+    doc.setFontSize(8); doc.setFont(undefined,'normal'); doc.setTextColor(...C.muted);
+    doc.text('Generated by Attendance Analyzer  •  ' + new Date().toLocaleDateString(), ML, PH-10);
+    doc.text('Page ' + p + ' of ' + totalPages, PW-MR, PH-10, {align:'right'});
+  }
+
+  // ── Save ──────────────────────────────────────────────────────────────
+  const safeName = result.name.replace(/[^a-zA-Z0-9]/g,'_');
+  const fromTag = (fromEl && fromEl.value) ? fromEl.value.replace(/-/g,'') : '';
+  const toTag   = (toEl   && toEl.value)   ? toEl.value.replace(/-/g,'')   : '';
+  const dateTag = fromTag && toTag ? '_' + fromTag + '-' + toTag : fromTag ? '_' + fromTag : '';
+  if (returnBlob) {
+    return doc.output('arraybuffer');
+  }
+  doc.save(safeName + '_Attendance' + dateTag + '.pdf');
+}
+
+
 // ── WhenIWork Clock Discrepancy Correction ────────────────────────────────────
 
 function buildTimesheetIndex() {
@@ -1432,7 +1999,10 @@ function buildTimesheetIndex() {
     const startVal = row['Start Time'];
     const endVal   = row['End Time'];
     const toMs = v => {
-      if (v instanceof Date) return v.getTime();
+      if (v instanceof Date) {
+        // XLSX cellDates:true: local time matches spreadsheet value, so getTime() is correct
+        return v.getTime();
+      }
       if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
       return null;
     };
@@ -1491,11 +2061,55 @@ function shiftWindowMs(shift) {
   const end   = parseTime12(timeParts[1]);
   if (!start || !end) return null;
 
-  const startMs = Date.UTC(y, mo, d, start.h, start.min);
-  let endMs     = Date.UTC(y, mo, d, end.h, end.min);
+  const startMs = new Date(y, mo, d, start.h, start.min).getTime();
+  let endMs     = new Date(y, mo, d, end.h, end.min).getTime();
   // Handle midnight crossings (e.g. 8pm–12am)
   if (endMs <= startMs) endMs += 86400000;
   return { startMs, endMs };
+}
+
+function autoCorrectAfterTimesheetLoad() {
+  // Don't re-run if corrections already exist
+  if (state.autocorrections && state.autocorrections.size > 0) return;
+  const index = buildTimesheetIndex();
+  if (!Object.keys(index).length) return;
+  const TOLERANCE = 15 * 60 * 1000;
+  let count = 0;
+  const affected = new Set();
+  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+    const blocks = index[nameKey];
+    if (!blocks) continue;
+    for (const shift of detail.clockin) {
+      if (shift.hasClock) continue;
+      const sKey = `${nameKey}|${shift.date}|${shift.time}`;
+      if (state.autocorrections.has(sKey)) continue;
+      const win = shiftWindowMs(shift);
+      if (!win) continue;
+      const covered = blocks.some(b =>
+        b.startMs <= win.startMs + TOLERANCE && b.endMs >= win.endMs - TOLERANCE
+      );
+      if (covered) {
+        shift.hasClock = true;
+        state.autocorrections.add(sKey);
+        affected.add(nameKey);
+        count++;
+      }
+    }
+  }
+  for (const nameKey of affected) recomputeEmployee(nameKey);
+  if (count > 0) {
+    renderAttRows();
+    refreshAttStats();
+    updateCorrectionCount();
+    // Show a subtle auto-applied banner on the correct button
+    const btn = document.getElementById('correct-btn');
+    if (btn) {
+      btn.innerHTML = '&#9881;&#65039; Clock Discrepancies Auto-Applied (' + count + ')';
+      btn.style.background = '#dbeafe';
+      btn.style.borderColor = '#60a5fa';
+      btn.style.color = '#1e40af';
+    }
+  }
 }
 
 function correctDiscrepancies() {
@@ -1548,6 +2162,13 @@ function correctDiscrepancies() {
   updateCorrectionCount();
   if (count > 0) {
     document.getElementById('undo-corrections-btn').style.display = '';
+    const btn = document.getElementById('correct-btn');
+    if (btn) {
+      btn.innerHTML = '&#9881;&#65039; Clock Discrepancies Corrected (' + state.autocorrections.size + ')';
+      btn.style.background = '#dbeafe';
+      btn.style.borderColor = '#60a5fa';
+      btn.style.color = '#1e40af';
+    }
     alert(`Auto-corrected ${count} shift${count===1?'':'s'} across ${newCorrections.size} employee${newCorrections.size===1?'':'s'}.`);
   } else {
     alert('No discrepancies found matching the correction criteria.');
@@ -1586,6 +2207,13 @@ function undoAllCorrections() {
   refreshAttStats();
   updateCorrectionCount();
   document.getElementById('undo-corrections-btn').style.display = 'none';
+  const btn = document.getElementById('correct-btn');
+  if (btn) {
+    btn.innerHTML = '&#9881;&#65039; Correct WhenIWork Clock Discrepancies';
+    btn.style.background = '#eff6ff';
+    btn.style.borderColor = '#93c5fd';
+    btn.style.color = '#1d4ed8';
+  }
 }
 
 function updateCorrectionCount() {
@@ -1708,6 +2336,9 @@ function exportSnapshot() {
     document.getElementById('export-btn').disabled   = false;
     document.getElementById('snapshot-btn').disabled = false;
     document.getElementById('correct-btn').disabled = false;
+    document.getElementById('worker-pdf-btn').disabled = false;
+    document.getElementById('bulk-pdf-btn').disabled = false;
+    populateWorkerDropdown();
     // Update date filter label then analyze
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
     analyze();
