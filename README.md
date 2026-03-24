@@ -1,14 +1,18 @@
-Preparing Files for the Attendance Analyzer:
+Open the Web App
 
-Click “Point to folder” to select the folder that (only) the three files live in, or drag the three files into the window.
+Preparing Files for the Attendance Analyzer
 
-If you want to analyze the semester in two halves, you can upload two sets of data, there is an optional “Period 2” that can be used for the time between midterms and finals.
-“Period 1” and “Period 2” also work around the WhenIWork date range limitations, so we can just run two sets of reports for each half of the semester and this app will stitch it all together.
 The reports that are needed from WhenIWork within the desired date range are:
 - Absences Report (stock WhenIWork)
 - Shift Requests (stock WhenIWork)
 - Shifts Worked (custom Shifts report, details below)
 - Timesheets Report (stock WhenIWork)
+
+Click “Point to folder” to select the folder that (only) the four files live in, or drag the four files into the window.
+
+If you want to analyze the semester in two halves, you can upload two sets of data, there is an optional “Period 2” that can be used for the time between midterms and finals.
+
+“Period 1” and “Period 2” also work around the WhenIWork date range limitations, so we can just run two sets of reports for each half of the semester and this app will stitch it all together.
 
 
 The row groups and sum values are what the webapp is expecting to see, and shows which shifts a person clocked in to or didn’t clock in to.
