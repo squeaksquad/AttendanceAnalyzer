@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { min-width: 900px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: #f0f0ee; color: #1a1a1a; min-height: 100vh; padding-top: 45px; }
+
+/* ── Header ── */
+header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; z-index: 20; }
+header h1 { font-size: 15px; font-weight: 700; color: #111; }
+header span { font-size: 12px; color: #888; }
+.date-range-pill { font-size: 11px; font-weight: 600; color: #4b5563; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; padding: 3px 9px; display: none; white-space: nowrap; }
+.date-range-pill.visible { display: inline-block; }
+
+/* ── Folder picker button ── */
+.folder-btn { position: relative; width: 100%; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 7px 10px; font-size: 12px; font-weight: 600; color: #374151; cursor: pointer; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; transition: all .15s; }
+.folder-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.folder-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.folder-btn .folder-label { display: flex; align-items: center; gap: 7px; }
+.folder-btn .folder-status { font-size: 10px; font-weight: 400; color: #9ca3af; }
+.folder-btn.loaded .folder-status { color: #16a34a; }
+
+/* ── Multi-drop overlay ── */
+.drop-overlay { position: fixed; inset: 0; background: rgba(29,78,216,.08); border: 3px dashed #3b82f6; border-radius: 0; z-index: 1000; display: none; align-items: center; justify-content: center; pointer-events: none; }
+.drop-overlay.active { display: flex; }
+.drop-overlay-inner { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 28px 40px; text-align: center; }
+.drop-overlay-inner p { font-size: 15px; font-weight: 700; color: #1d4ed8; margin-bottom: 4px; }
+.drop-overlay-inner small { font-size: 12px; color: #6b7280; }
+
+/* ── Mode tabs ── */
+.mode-tabs { display: flex; gap: 0; border: 1px solid #d1d5db; border-radius: 5px; overflow: hidden; margin-left: auto; }
+.mode-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; background: #fff; color: #555; border: none; border-right: 1px solid #d1d5db; transition: all .15s; }
+.mode-tab:last-child { border-right: none; }
+.mode-tab:hover { background: #f3f4f6; color: #111; }
+.mode-tab.active { background: #1d4ed8; color: #fff; }
+
+/* ── Layout ── */
+.workspace { display: block; margin-left: 260px; min-height: calc(100vh - 45px); min-width: 640px; }
+
+/* ── Sidebar ── */
+.sidebar { background: #fff; border-right: 1px solid #ddd; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: fixed; top: 45px; left: 0; z-index: 10; width: 260px; height: calc(100vh - 45px); overflow-y: auto; box-sizing: border-box; }
+.sidebar-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #999; margin-top: 12px; margin-bottom: 2px; }
+.sidebar-label:first-child { margin-top: 0; }
+.period-header { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 3px; padding: 1px 6px; margin-bottom: 2px; display: inline-block; }
+.period-header.p1 { background: #1d4ed8; }
+.period-header.p2 { background: #7c3aed; }
+.upload-zone { border: 1px solid #e8e8e8; border-radius: 3px; padding: 3px 8px 3px 12px; cursor: pointer; transition: all .15s; position: relative; background: #fafafa; display: flex; align-items: center; gap: 6px; margin-left: 4px; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
+.upload-zone.loaded { border-color: #22c55e; background: #f0fdf4; }
+.upload-zone.error  { border-color: #ef4444; background: #fef2f2; }
+.upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.zone-title { font-size: 10px; font-weight: 500; color: #6b7280; }
+.zone-sub   { display: none; }
+.zone-status { font-size: 10px; margin-left: auto; white-space: nowrap; }
+.zone-status.ok  { color: #16a34a; }
+.zone-status.err { color: #dc2626; }
+.date-filter-row { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+.date-filter-row input[type=date] { flex: 1; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 6px; font-size: 11px; color: #374151; background: #fff; min-width: 0; }
+.date-filter-row span { font-size: 10px; color: #9ca3af; flex-shrink: 0; }
+.date-clear-btn { font-size: 10px; color: #6b7280; background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; margin-top: 2px; }
+.run-btn { margin-top: 8px; background: #1d4ed8; color: #fff; border: none; padding: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px; width: 100%; transition: background .15s; }
+.run-btn:hover { background: #1e40af; }
+.run-btn:disabled { background: #bfdbfe; color: #93c5fd; cursor: not-allowed; }
+.export-btn { background: #fff; color: #374151; border: 1px solid #d1d5db; padding: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px; width: 100%; transition: all .15s; margin-top: 4px; }
+.export-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.export-btn:disabled { opacity: .4; cursor: not-allowed; }
+.info-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.9; }
+.info-box strong { color: #374151; display: block; margin-top: 6px; }
+.info-box strong:first-child { margin-top: 0; }
+
+/* ── Main ── */
+.main { padding: 0; display: flex; flex-direction: column; min-width: 640px; overflow: visible; }
+.main-header { position: fixed; top: 45px; left: 260px; right: 0; z-index: 14; background: #f0f0ee; padding: 12px 24px 0; box-sizing: border-box; }
+.filter-bar-sticky { position: fixed; top: 45px; left: 260px; right: 0; z-index: 15; background: #f0f0ee; box-sizing: border-box; padding: 8px 24px 10px; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; }
+.main-scroll { padding: 0 24px 24px; overflow: visible; flex: 1; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; gap: 8px; color: #aaa; }
+.empty-state .big { font-size: 40px; }
+.empty-state p { font-size: 13px; }
+.empty-state p.sub { font-size: 11px; color: #ccc; }
+
+/* ── Stats ── */
+.stats-row { display: grid; gap: 10px; margin-bottom: 0; }
+.stats-row.cols-5 { grid-template-columns: repeat(5, minmax(120px, 200px)); }
+.stats-row.cols-4 { grid-template-columns: repeat(4, minmax(140px, 220px)); }
+.stats-sticky { padding-bottom: 4px; }
+.stat-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 11px 14px; }
+.stat-card .val { font-size: 24px; font-weight: 700; line-height: 1; margin-bottom: 3px; color: #111; }
+.stat-card .val.red { color: #dc2626; }
+.stat-card .lbl { font-size: 11px; color: #888; }
+
+/* ── Filter bar ── */
+.filter-row { display: flex; gap: 10px; margin-bottom: 0; align-items: center; flex-wrap: wrap; }
+.filter-row input[type=text] { border: 1px solid #d1d5db; background: #fff; color: #111; padding: 6px 10px; border-radius: 4px; font-size: 12px; width: 200px; outline: none; }
+.filter-row input[type=text]:focus { border-color: #3b82f6; }
+.filter-row label { font-size: 12px; color: #555; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.filter-row input[type=checkbox] { cursor: pointer; accent-color: #1d4ed8; }
+.row-count { font-size: 11px; color: #999; margin-left: 16px; }
+
+/* ── Tables (shared) ── */
+.table-wrap { border: 1px solid #e5e7eb; border-radius: 5px; overflow: visible; background: #fff; }
+table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; }
+thead tr.group-row th { background: #f9fafb; padding: 5px 14px 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #bbb; border-bottom: 1px solid #f0f0f0; white-space: nowrap; position: sticky; top: 0; z-index: 12; }
+thead tr.group-row th.g-attendance { color: #4a8f5e; }
+thead tr.group-row th.g-absences   { color: #b45309; }
+thead tr.group-row th.g-drops      { color: #b91c1c; }
+thead tr.group-row th.g-prep       { color: #7c3aed; }
+thead tr.group-row th.g-close      { color: #0369a1; }
+thead tr.col-row th { background: #f9fafb; padding: 7px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #555; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 11; box-shadow: 0 -30px 0 0 #f9fafb; }
+thead tr.col-row th.c-attendance { color: #4a8f5e; }
+thead tr.col-row th.c-absences   { color: #b45309; }
+thead tr.col-row th.c-drops      { color: #b91c1c; }
+thead tr.col-row th:hover { color: #1d4ed8; }
+thead tr.col-row th.sorted { color: #1d4ed8; }
+thead tr.col-row th.sorted::after { content: ' ↕'; font-size: 9px; }
+th.sep-left, td.sep-left { border-left: 1px solid #e5e7eb; }
+tbody tr.summary-row { border-bottom: 1px solid #f0f0ee; cursor: pointer; background: #fff; }
+tbody tr.summary-row td.expand-arrow,
+tbody tr.summary-row td.name-cell { background: #fff; }
+tbody tr.summary-row.flagged td.expand-arrow,
+tbody tr.summary-row.flagged td.name-cell { background: #fff5f5; }
+tbody tr.summary-row.flagged:hover td.expand-arrow,
+tbody tr.summary-row.flagged:hover td.name-cell { background: #fee2e2; }
+tbody tr.summary-row:hover td.expand-arrow,
+tbody tr.summary-row:hover td.name-cell { background: #f8f8f6; }
+tbody tr.summary-row.open td.expand-arrow,
+tbody tr.summary-row.open td.name-cell { background: #f0f5ff; }
+tbody tr.summary-row:hover { background: #f8f8f6; }
+tbody tr.summary-row.flagged { background: #fff5f5; }
+tbody tr.summary-row.flagged:hover { background: #fee2e2; }
+tbody tr.summary-row.open { background: #f0f5ff; }
+td { padding: 8px 14px; white-space: nowrap; font-size: 13px; color: #374151; background: inherit; }
+td.name-cell { font-weight: 600; font-size: 13px; color: #111; min-width: 180px; white-space: nowrap; position: sticky; left: 288px; z-index: 2; }
+td.expand-arrow { width: 28px; padding: 8px 6px 8px 12px; color: #aaa; font-size: 11px; position: sticky; left: 260px; z-index: 2; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num.zero { color: #ccc; }
+td.pct { font-weight: 700; text-align: right; }
+td.c-ok   { color: #16a34a; }
+td.c-warn { color: #d97706; }
+td.c-red  { color: #dc2626; }
+.flag-badge { display: inline-block; background: #dc2626; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; margin-left: 7px; vertical-align: middle; }
+
+/* ── Detail panel (attendance mode) ── */
+tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px solid #dce3f0; overflow-x: auto; }
+.detail-panel { padding: 10px 12px 12px 12px; }
+.detail-sections { display: grid; grid-template-columns: repeat(3, 340px); gap: 12px; }
+.detail-section h4 { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #888; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e4ee; }
+.detail-section h4.h-attendance { color: #4a8f5e; border-color: #c6e0ce; }
+.detail-section h4.h-absences   { color: #b45309; border-color: #fde68a; }
+.detail-section h4.h-drops      { color: #b91c1c; border-color: #fecaca; }
+.detail-empty { font-size: 12px; color: #bbb; font-style: italic; padding: 4px 0; }
+.detail-item { border: 1px solid #e5e8f0; border-radius: 4px; background: #fff; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; white-space: normal; }
+.detail-item:last-child { margin-bottom: 0; }
+.detail-item .di-date { font-weight: 600; color: #111; margin-bottom: 3px; }
+.detail-item .di-meta { color: #666; margin-bottom: 3px; line-height: 1.5; }
+.detail-item .di-note { font-style: italic; color: #555; background: #f9f9f9; border-left: 2px solid #d1d5db; padding: 4px 7px; margin-top: 5px; border-radius: 0 3px 3px 0; white-space: normal; line-height: 1.5; }
+.di-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
+.di-badge.drop    { background: #fee2e2; color: #b91c1c; }
+.di-badge.filled  { background: #dcfce7; color: #15803d; }
+.di-badge.open    { background: #fef3c7; color: #92400e; }
+.di-badge.swap    { background: #e0e7ff; color: #3730a3; }
+.di-badge.noclock { background: #fef3c7; color: #92400e; }
+.di-badge.clocked { background: #f0fdf4; color: #15803d; }
+.di-badge.manual  { background: #ede9fe; color: #6d28d9; }
+.di-badge.autocorrect { background: #dbeafe; color: #1d4ed8; }
+.shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer; margin-left: 8px; transition: all .12s; vertical-align: middle; }
+.shift-filter-btn.active { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.mark-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
+.mark-btn:hover { border-color: #6d28d9; color: #6d28d9; background: #faf5ff; }
+.mark-btn.undo { border-color: #d1d5db; color: #9ca3af; background: #f9fafb; }
+.mark-btn.undo:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+.detail-item.has-absence { border-color: #f59e0b; background: #fffbeb; }
+.detail-item.has-absence .di-date { color: #92400e; }
+.absence-overlap-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+.di-badge.self    { background: #f3f4f6; color: #374151; }
+.di-badge.staff   { background: #fef3c7; color: #92400e; }
+
+/* ── Prep/Close mode ── */
+.pc-section-title { font-size: 13px; font-weight: 700; color: #111; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
+.pc-section-title.prep  { border-color: #a78bfa; color: #5b21b6; }
+.pc-section-title.close { border-color: #7dd3fc; color: #0369a1; }
+.pc-two-col { display: flex; flex-direction: column; gap: 32px; margin-bottom: 24px; }
+
+.commit-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+.commit-badge.met     { background: #dcfce7; color: #15803d; }
+.commit-badge.partial { background: #fef3c7; color: #92400e; }
+.commit-badge.missed  { background: #fee2e2; color: #b91c1c; }
+.commit-badge.none    { background: #f3f4f6; color: #9ca3af; font-weight: 400; font-style: italic; }
+
+.commit-breakdown { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.day-slot { font-size: 11px; padding: 2px 7px; border-radius: 3px; font-weight: 600; }
+.day-slot.met     { background: #dcfce7; color: #15803d; }
+.day-slot.partial { background: #fef3c7; color: #92400e; }
+.day-slot.missed  { background: #fee2e2; color: #b91c1c; }
+.day-slot.once    { background: #f3f4f6; color: #6b7280; font-weight: 400; }
+
+tbody tr.pc-detail-row td { padding: 0; background: #f8f5ff; border-bottom: 2px solid #ddd6fe; }
+tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae6fd; }
+.pc-detail-panel { padding: 10px 16px 12px 16px; }
+.pc-commit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.pc-commit-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; font-size: 12px; }
+.pc-commit-card .pcc-day { font-weight: 700; color: #111; margin-bottom: 5px; font-size: 12px; }
+.pc-commit-card .pcc-stat { color: #555; margin-bottom: 4px; }
+.pc-commit-card .pcc-pct { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+.pcc-shifts { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+.pcc-shift { font-size: 11px; display: flex; gap: 6px; align-items: center; color: #555; flex-wrap: wrap; }
+.pcc-shift .pcc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.pcc-dot.ok  { background: #22c55e; }
+.pcc-dot.bad { background: #ef4444; }
+
+.error-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #dc2626; margin-bottom: 14px; }
+.offset-select { width: 100%; padding: 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; outline: none; cursor: pointer; color: #111; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Attendance Analyzer</h1>
+  <span>WhenIWork · Internal Management Tool</span>
+  <span class="date-range-pill" id="date-range-pill"></span>
+  <div class="mode-tabs">
+    <button class="mode-tab active" onclick="setMode('attendance')" id="tab-att">Attendance</button>
+    <button class="mode-tab" onclick="setMode('prepclosing')" id="tab-pc">Prep &amp; Closing Shifts</button>
+  </div>
+</header>
+
+<div class="drop-overlay" id="drop-overlay">
+  <div class="drop-overlay-inner">
+    <p>Drop your WhenIWork files here</p>
+    <small>Absences · Shifts Worked · Shift Requests — all three at once</small>
+  </div>
+</div>
+<div class="workspace">
+  <div class="sidebar">
+    <div class="sidebar-label">Upload Reports</div>
+    <label class="folder-btn" id="folder-btn">
+      <input type="file" id="folder-input" webkitdirectory multiple accept=".xlsx,.xls,.csv" onchange="loadFolder(event,'1')">
+      <span class="folder-label">📁 Point to Folder (Period 1)</span>
+      <span class="folder-status" id="folder-status"></span>
+    </label>
+    <div class="period-header p1">Period 1</div>
+    <div class="upload-zone" id="zone-absences" ondragover="dragOver(event,'zone-absences')" ondragleave="dragLeave('zone-absences')" ondrop="dropFile(event,'absences')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'absences')">
+      <div class="zone-title">📋 Absences Report</div>
+      <div class="zone-sub">Self-reported &amp; staff-marked</div>
+      <div class="zone-status" id="status-absences"></div>
+    </div>
+    <div class="upload-zone" id="zone-clockin" ondragover="dragOver(event,'zone-clockin')" ondragleave="dragLeave('zone-clockin')" ondrop="dropFile(event,'clockin')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'clockin')">
+      <div class="zone-title">⏱ Shifts Worked</div>
+      <div class="zone-sub">Assigned vs. timeclock entries</div>
+      <div class="zone-status" id="status-clockin"></div>
+    </div>
+    <div class="upload-zone" id="zone-shifts" ondragover="dragOver(event,'zone-shifts')" ondragleave="dragLeave('zone-shifts')" ondrop="dropFile(event,'shifts')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'shifts')">
+      <div class="zone-title">🔄 Shift Requests</div>
+      <div class="zone-sub">Drops, coverage, pickups</div>
+      <div class="zone-status" id="status-shifts"></div>
+    </div>
+    <div class="upload-zone" id="zone-timesheets" ondragover="dragOver(event,'zone-timesheets')" ondragleave="dragLeave('zone-timesheets')" ondrop="dropFile(event,'timesheets')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'timesheets')">
+      <div class="zone-title">🕐 Timesheets</div>
+      <div class="zone-sub">Actual clock in/out times</div>
+      <div class="zone-status" id="status-timesheets"></div>
+    </div>
+    <label class="folder-btn" id="folder-btn2" style="margin-top:4px">
+      <input type="file" id="folder-input2" webkitdirectory multiple accept=".xlsx,.xls,.csv" onchange="loadFolder(event,'2')">
+      <span class="folder-label">📁 Point to Folder (Period 2)</span>
+      <span class="folder-status" id="folder-status2"></span>
+    </label>
+    <div class="period-header p2">Period 2 <span style="font-weight:400;opacity:.7">(optional)</span></div>
+    <div class="upload-zone" id="zone-absences2" ondragover="dragOver(event,'zone-absences2')" ondragleave="dragLeave('zone-absences2')" ondrop="dropFile(event,'absences2')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'absences2')">
+      <div class="zone-title">📋 Absences Report</div>
+      <div class="zone-sub">Self-reported &amp; staff-marked</div>
+      <div class="zone-status" id="status-absences2"></div>
+    </div>
+    <div class="upload-zone" id="zone-clockin2" ondragover="dragOver(event,'zone-clockin2')" ondragleave="dragLeave('zone-clockin2')" ondrop="dropFile(event,'clockin2')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'clockin2')">
+      <div class="zone-title">⏱ Shifts Worked</div>
+      <div class="zone-sub">Assigned vs. timeclock entries</div>
+      <div class="zone-status" id="status-clockin2"></div>
+    </div>
+    <div class="upload-zone" id="zone-shifts2" ondragover="dragOver(event,'zone-shifts2')" ondragleave="dragLeave('zone-shifts2')" ondrop="dropFile(event,'shifts2')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'shifts2')">
+      <div class="zone-title">🔄 Shift Requests</div>
+      <div class="zone-sub">Drops, coverage, pickups</div>
+      <div class="zone-status" id="status-shifts2"></div>
+    </div>
+    <div class="upload-zone" id="zone-timesheets2" ondragover="dragOver(event,'zone-timesheets2')" ondragleave="dragLeave('zone-timesheets2')" ondrop="dropFile(event,'timesheets2')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'timesheets2')">
+      <div class="zone-title">🕐 Timesheets</div>
+      <div class="zone-sub">Actual clock in/out times</div>
+      <div class="zone-status" id="status-timesheets2"></div>
+    </div>
+
+
+
+
+    <div class="sidebar-label" style="margin-top:12px">Date Range Filter</div>
+    <div class="date-filter-row">
+      <input type="date" id="filter-date-from" onchange="onDateFilterChange()" title="From date">
+      <span>→</span>
+      <input type="date" id="filter-date-to" onchange="onDateFilterChange()" title="To date">
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
+      <span style="font-size:10px;color:#9ca3af" id="date-filter-label">All dates</span>
+      <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
+    </div>
+    <button class="run-btn" id="run-btn" onclick="analyze()" disabled>Analyze</button>
+    <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">&#9881;&#65039; Correct WhenIWork Clock Discrepancies</button>
+    <button class="export-btn" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626">&#8593; Undo All Auto-Corrections (<span id="correction-count">0</span>)</button>
+    <button class="export-btn" id="export-btn" onclick="exportReport()" disabled>Export to Excel</button>
+    <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot (shareable)</button>
+    <details style="margin-top:8px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+        <span id="tz-arrow" style="font-size:9px">▶</span> Timezone &amp; Advanced
+      </summary>
+      <div style="margin-top:6px">
+        <div style="font-size:10px;color:#9ca3af;margin-bottom:3px">Timezone</div>
+        <select id="tz-offset" class="offset-select" style="font-size:11px" onchange="if(!document.getElementById('run-btn').disabled) analyze()">
+          <option value="America/New_York">Auto Eastern (DST-aware)</option>
+          <option value="-4">Force EDT (-4)</option>
+          <option value="-5">Force EST (-5)</option>
+          <option value="literal">Literal (as written)</option>
+        </select>
+      </div>
+    </details>
+    <div class="info-box">
+      <strong>Absences</strong>
+      Self-reported: reporter = employee<br>
+      Staff-marked: reporter ≠ employee
+      <strong>Attendance %</strong>
+      Worked ÷ (Assigned + Picked Up + Covered by Others)<br>
+      Worked = shifts with clock-in entry
+      <strong>Shift drops</strong>
+      Filled by Someone = accepted &amp; covered<br>
+      Left Open = canceled / denied / expired
+    </div>
+  </div>
+  <div class="main" id="main">
+    <div class="empty-state">
+      <div class="big">📂</div>
+      <p>Upload your three WhenIWork exports to begin</p>
+      <p class="sub">All processing stays in your browser — nothing is uploaded</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const state = {
+  absences: null, clockin: null, shifts: null,
+  results: null, detailMap: {}, prepCloseData: null,
+  mode: 'attendance',
+  att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
+  pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview' },
+  overrides: new Set(),  // shift keys manually marked as worked
+  autocorrections: new Set()  // shift keys auto-corrected by discrepancy fixer
+};
+
+// ── File loading ──────────────────────────────────────────────────────────────
+// ── File type detection by filename ──────────────────────────────────────────
+function detectFileType(filename) {
+  const n = filename.toLowerCase();
+  if (n.startsWith('absences'))                      return 'absences';
+  if (n.startsWith('shifts_worked') || n.startsWith('shifts worked')) return 'clockin';
+  if (n.startsWith('shift_requests') || n.startsWith('shift requests')) return 'shifts';
+  // Looser fallbacks
+  if (n.includes('absence'))                          return 'absences';
+  if (n.includes('worked'))                           return 'clockin';
+  if (n.includes('request'))                          return 'shifts';
+  if (n.startsWith('timesheet') || n.includes('timesheet')) return 'timesheets';
+  return null;
+}
+
+// ── Full-page drag-and-drop overlay ──────────────────────────────────────────
+let _dragCounter = 0;
+document.addEventListener('dragenter', e => {
+  if ([...e.dataTransfer.types].includes('Files')) {
+    _dragCounter++;
+    document.getElementById('drop-overlay').classList.add('active');
+  }
+});
+document.addEventListener('dragleave', () => {
+  if (--_dragCounter <= 0) {
+    _dragCounter = 0;
+    document.getElementById('drop-overlay').classList.remove('active');
+  }
+});
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  _dragCounter = 0;
+  document.getElementById('drop-overlay').classList.remove('active');
+  const files = [...e.dataTransfer.files].filter(f => /\.xlsx?$|\.csv$/i.test(f.name));
+  if (!files.length) return;
+  let unmatched = [];
+  files.forEach(f => {
+    const type = detectFileType(f.name);
+    if (type) processFile(f, type);
+    else unmatched.push(f.name);
+  });
+  if (unmatched.length) alert(`Could not auto-detect report type for:\n${unmatched.join('\n')}\n\nDrag it onto the specific upload zone instead.`);
+});
+
+// ── Individual zone drag handlers (still work for single-zone drops) ──────────
+function dragOver(e,id){e.preventDefault();document.getElementById(id).classList.add('drag-over')}
+function dragLeave(id){document.getElementById(id).classList.remove('drag-over')}
+function dropFile(e,type){
+  // Prevent the document-level drop handler from also firing
+  e.stopPropagation();
+  e.preventDefault();
+  _dragCounter = 0;
+  document.getElementById('drop-overlay').classList.remove('active');
+  dragLeave('zone-'+type);
+  const f=e.dataTransfer.files[0];
+  if(f) processFile(f,type);
+}
+function loadFile(e,type){const f=e.target.files[0];if(f)processFile(f,type)}
+
+function loadFolder(e, period) {
+  period = period || '1';
+  const suffix = period === '2' ? '2' : '';
+  const files = [...e.target.files].filter(f => /\.xlsx?$|\.csv$/i.test(f.name));
+  const statusEl = document.getElementById('folder-status' + suffix);
+  const btnEl    = document.getElementById('folder-btn' + suffix);
+  if (!files.length) { statusEl.textContent = 'no xlsx/csv found'; return; }
+  let matched = 0, unmatched = [];
+  files.forEach(f => {
+    const type = detectFileType(f.name);
+    if (type) { processFile(f, type + suffix); matched++; }
+    else unmatched.push(f.name);
+  });
+  statusEl.textContent = matched === 3 ? '✓ 3 matched' : `${matched}/3 matched`;
+  btnEl.classList.toggle('loaded', matched === 3);
+}
+
+function processFile(file, type) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array', raw: true, cellDates: false});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, {defval:null});
+      state[type] = data;
+      document.getElementById('zone-'+type).classList.add('loaded');
+      document.getElementById('zone-'+type).classList.remove('drag-over','error');
+      const st = document.getElementById('status-'+type);
+      st.className = 'zone-status ok';
+      st.textContent = `✓ ${data.length} rows loaded`;
+      checkReady();
+    } catch(err) {
+      document.getElementById('zone-'+type).classList.add('error');
+      const st = document.getElementById('status-'+type);
+      st.className = 'zone-status err';
+      st.textContent = '✗ ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(state.absences && state.clockin && state.shifts);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function lastFirstToFirstLast(name) {
+  if (!name) return '';
+  name = name.toString().trim();
+  if (name.includes(',')) {
+    const parts = name.split(',');
+    return (parts.slice(1).join(',').trim() + ' ' + parts[0].trim()).trim();
+  }
+  return name;
+}
+function normName(n) { return (n||'').toString().trim().toLowerCase().replace(/\s+/g,' '); }
+
+
+// ── SMART DST & TIMEZONE LOGIC ──
+function parseUniversal(val) {
+    if (val === null || val === undefined || val === '') return null;
+    let offsetMode = document.getElementById('tz-offset') ? document.getElementById('tz-offset').value : 'America/New_York';
+    
+    let h=0, m=0, y=0, mo=0, d=0, isTimeOnly=false, isDateOnly=false;
+
+    const applyOffset = (dtObj) => {
+        if (offsetMode === 'literal') {
+            return { h: dtObj.getUTCHours(), m: dtObj.getUTCMinutes(), y: dtObj.getUTCFullYear(), mo: dtObj.getUTCMonth(), d: dtObj.getUTCDate(), dow: DAYS[dtObj.getUTCDay()] };
+        } else if (offsetMode === 'America/New_York') {
+            // Tell the browser to format the date specifically using NY Time rules (Perfect DST handling)
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: 'numeric', minute: 'numeric', hour12: false
+            }).formatToParts(dtObj);
+            
+            let p = {};
+            parts.forEach(x => p[x.type] = x.value);
+            
+            let outH = parseInt(p.hour, 10);
+            if (outH === 24) outH = 0; // Fix edge cases in Intl API
+            let outMo = parseInt(p.month, 10) - 1;
+            let outY = parseInt(p.year, 10);
+            let outD = parseInt(p.day, 10);
+            
+            return { h: outH, m: parseInt(p.minute, 10), y: outY, mo: outMo, d: outD, dow: DAYS[new Date(outY, outMo, outD).getDay()] };
+        } else {
+            // Fixed Offset (-4 or -5)
+            let shifted = new Date(dtObj.getTime() + (parseFloat(offsetMode) * 3600000));
+            return { h: shifted.getUTCHours(), m: shifted.getUTCMinutes(), y: shifted.getUTCFullYear(), mo: shifted.getUTCMonth(), d: shifted.getUTCDate(), dow: DAYS[shifted.getUTCDay()] };
+        }
+    };
+
+    // 1. Excel Serial Number
+    if (typeof val === 'number') {
+        const msPerDay = 86400 * 1000;
+        // Correct Excel→Unix: serial 25569 = Jan 1 1970. The Dec 30 1899 epoch
+        // is a common off-by-one mistake that shifts every date +1 day.
+        let dt = new Date(Math.round((val - 25569) * msPerDay / 1000) * 1000);
+        return applyOffset(dt);
+    }
+
+    let s = String(val).trim();
+
+    // 2. Standalone AM/PM String (Usually from "Absences")
+    const ampm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)$/i);
+    if (ampm) {
+        h = parseInt(ampm[1], 10);
+        m = parseInt(ampm[2], 10);
+        if (ampm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+        if (ampm[3].toLowerCase() === 'am' && h === 12) h = 0;
+        return { h, m, isTimeOnly: true };
+    }
+
+    // 3. ISO String (WhenIWork normally exports these, e.g. "2026-03-08T11:30:00")
+    if (s.includes('T')) {
+        if (offsetMode === 'literal') {
+            const [dp, tp] = s.split('T');
+            const dparts = dp.split('-');
+            if (dparts.length === 3) { y = parseInt(dparts[0], 10); mo = parseInt(dparts[1], 10) - 1; d = parseInt(dparts[2], 10); }
+            if (tp) {
+                const tparts = tp.split(':');
+                h = parseInt(tparts[0], 10); m = parseInt(tparts[1], 10);
+            }
+            return { h, m, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()] };
+        }
+        else {
+            let safeISO = s;
+            // Force it to be read as UTC so we can accurately offset it
+            if (!safeISO.endsWith('Z') && !safeISO.match(/[+-]\d{2}:\d{2}$/)) safeISO += 'Z';
+            let dt = new Date(safeISO);
+            if (!isNaN(dt.getTime())) return applyOffset(dt);
+        }
+    }
+
+    // 4. M/D/Y Date String
+    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (mdy) {
+        mo = parseInt(mdy[1], 10) - 1;
+        d = parseInt(mdy[2], 10);
+        y = parseInt(mdy[3], 10);
+        if (y < 100) y += 2000;
+        return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
+    }
+
+    // 5. Fallback Default
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+        return { h: dt.getHours(), m: dt.getMinutes(), y: dt.getFullYear(), mo: dt.getMonth(), d: dt.getDate(), dow: DAYS[dt.getDay()] };
+    }
+
+    return null;
+}
+
+function fmtTime(v) {
+    const p = parseUniversal(v);
+    if (!p || p.isDateOnly) return v ? String(v) : '';
+    const ampm = p.h < 12 ? 'am' : 'pm';
+    const h12 = p.h % 12 === 0 ? 12 : p.h % 12;
+    return p.m === 0 ? `${h12}${ampm}` : `${h12}:${String(p.m).padStart(2,'0')}${ampm}`;
+}
+
+function fmtDate(v) {
+    const p = parseUniversal(v);
+    if (!p || p.isTimeOnly || p.y === undefined) return v ? String(v).split('T')[0] : '';
+    return `${MONTHS[p.mo]} ${p.d}, ${p.y}`;
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Core analysis ─────────────────────────────────────────────────────────────
+function updateDateRangePill(rawShifts) {
+  const pill = document.getElementById('date-range-pill');
+  if (!rawShifts || !rawShifts.length) { pill.classList.remove('visible'); return; }
+  // dateVal is the raw Excel value: a number (serial) or JS Date, before stringification
+  let minMs = Infinity, maxMs = -Infinity;
+  for (const s of rawShifts) {
+    const v = s.dateVal;
+    let ms;
+    if (v instanceof Date) ms = v.getTime();
+    else if (typeof v === 'number') ms = (v - 25569) * 86400000;
+    else continue;
+    if (ms < minMs) minMs = ms;
+    if (ms > maxMs) maxMs = ms;
+  }
+  if (!isFinite(minMs)) { pill.classList.remove('visible'); return; }
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmt = ms => { const d = new Date(ms); return `${months[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`; };
+  pill.textContent = `${fmt(minMs)} – ${fmt(maxMs)}`;
+  pill.classList.add('visible');
+}
+
+function onDateFilterChange() {
+  const from = document.getElementById('filter-date-from').value;
+  const to   = document.getElementById('filter-date-to').value;
+  const lbl  = document.getElementById('date-filter-label');
+  if (!from && !to) { lbl.textContent = 'All dates'; }
+  else if (from && !to) { lbl.textContent = 'From ' + from; }
+  else if (!from && to) { lbl.textContent = 'Until ' + to; }
+  else { lbl.textContent = from + ' → ' + to; }
+  // Re-analyze if data is loaded
+  if (!document.getElementById('run-btn').disabled) analyze();
+}
+
+function clearDateFilter() {
+  document.getElementById('filter-date-from').value = '';
+  document.getElementById('filter-date-to').value   = '';
+  onDateFilterChange();
+}
+
+function getDateFilterMs() {
+  const fromStr = document.getElementById('filter-date-from').value;
+  const toStr   = document.getElementById('filter-date-to').value;
+  // Parse as UTC midnight to avoid timezone offset issues
+  const fromMs = fromStr ? new Date(fromStr + 'T00:00:00Z').getTime() : null;
+  const toMs   = toStr   ? new Date(toStr   + 'T23:59:59Z').getTime() : null;
+  return { fromMs, toMs };
+}
+
+function shiftDateToMs(dateVal) {
+  if (dateVal instanceof Date) return dateVal.getTime();
+  if (typeof dateVal === 'number') return Math.round((dateVal - 25569) * 86400000 / 1000) * 1000;
+  return null;
+}
+
+function analyze() {
+  try {
+    const built = buildResults();
+    state.results     = built.results;
+    state.detailMap   = built.detailMap;
+    state.prepCloseData = buildPrepCloseData(built.rawShifts);
+    state.att.openRows.clear();
+    state.pc.openRows.clear();
+    state.shiftFilter = {};
+    updateDateRangePill(built.rawShifts);
+    // Auto-populate date inputs from data range if not yet set by user
+    const fromEl = document.getElementById('filter-date-from');
+    const toEl   = document.getElementById('filter-date-to');
+    if (!fromEl.value && !toEl.value && built.rawShifts.length) {
+      let minMs = Infinity, maxMs = -Infinity;
+      for (const s of built.rawShifts) {
+        const ms = shiftDateToMs(s.dateVal);
+        if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
+      }
+      if (isFinite(minMs)) {
+        const toISO = ms => new Date(ms).toISOString().slice(0,10);
+        fromEl.value = toISO(minMs);
+        toEl.value   = toISO(maxMs);
+        onDateFilterChange();
+      }
+    }
+    renderMain();
+    document.getElementById('export-btn').disabled = false;
+    document.getElementById('snapshot-btn').disabled = false;
+    document.getElementById('correct-btn').disabled = false;
+  } catch(err) {
+    document.getElementById('main').insertAdjacentHTML('afterbegin',`<div class="error-box">⚠ ${err.message}</div>`);
+    console.error(err);
+  }
+}
+
+function buildResults() {
+  // Date filter bounds — computed once for this analysis run
+  const { fromMs, toMs } = getDateFilterMs();
+  function dateInRange(dateVal) {
+    if (!fromMs && !toMs) return true;
+    const ms = shiftDateToMs(dateVal);
+    if (ms === null) return true;
+    if (fromMs && ms < fromMs) return false;
+    if (toMs   && ms > toMs)   return false;
+    return true;
+  }
+  function strDateInRange(dateStr) {
+    if (!fromMs && !toMs) return true;
+    if (!dateStr) return true;
+    const ms = new Date(dateStr).getTime();
+    if (isNaN(ms)) return true;
+    if (fromMs && ms < fromMs) return false;
+    if (toMs   && ms > toMs + 86400000) return false;
+    return true;
+  }
+
+  // Merge period 2 data into period 1 if present
+  const mergedAbsences = [...(state.absences||[]), ...(state.absences2||[])];
+  const mergedClockin  = [...(state.clockin||[]),  ...(state.clockin2||[])];
+  const mergedShifts   = [...(state.shifts||[]),   ...(state.shifts2||[])];
+
+  // Temporarily swap state arrays so the rest of buildResults works unchanged
+  const _abs = state.absences, _clk = state.clockin, _sft = state.shifts;
+  state.absences = mergedAbsences;
+  state.clockin  = mergedClockin;
+  state.shifts   = mergedShifts;
+
+  const emp = {}, detail = {};
+  const rawShifts = [];
+
+  function get(displayName) {
+    const key = normName(displayName);
+    if (!key) return null;
+    if (!emp[key]) {
+      emp[key] = { name:displayName.toString().trim(), assigned:0, no_timeclock:0, abs_self:0, abs_staff:0, dropped:0, covered:0, uncovered:0, picked_up:0 };
+      detail[key] = { absences:[], shifts:[], clockin:[] };
+    }
+    return emp[key];
+  }
+
+  // ── Shifts Worked ──
+  {
+    let curName=null, curTC=false;
+    
+    for (const row of state.clockin) {
+      const rawName=row['Assignee Name'];
+      const tc=row['Has Timeclock Entry'];
+      const hasDate=row['Start Date']!=null;
+
+      if (rawName != null && String(rawName).trim() !== '') {
+        curName=lastFirstToFirstLast(rawName);
+        curTC=false;
+        get(curName);
+      }
+      
+      const tcStr = tc !== undefined && tc !== null ? String(tc).trim().toLowerCase() : null;
+      if ((tcStr === 'true' || tcStr === 'false') && !hasDate) {
+        curTC = (tcStr === 'true');
+      }
+      
+      if (hasDate && curName) {
+        const e = get(curName); if(!e) continue;
+        
+        let hasClock = curTC;
+        if (tcStr === 'true' || tcStr === 'false') {
+          hasClock = (tcStr === 'true');
+        }
+
+        const dateVal = row['Start Date'];
+        if (!dateInRange(dateVal)) continue; // ← date filter
+        const dateStr = fmtDate(dateVal);
+        const startT = row['Start Time'] || dateVal;
+        const endT = row['End Time'];
+        
+        const _hm = parseUniversal(startT);
+        const startH = _hm ? _hm.h : null;
+        const startM = _hm ? _hm.m : null;
+        const dow = _hm ? _hm.dow : '';
+
+        const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
+
+        detail[normName(curName)].clockin.push({
+          date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
+          site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
+        });
+
+        rawShifts.push({
+          name:curName, nameKey:normName(curName),
+          date:dateStr, dateVal, dow, rawDate: _hm,
+          startH: startH !== null ? startH : -1,
+          startM: startM !== null ? startM : -1,
+          hasClock, site:row['Job Site Name']||'',
+          position:row['Position Name']||'',
+          notes:row['Shift Notes']||'',
+          length:row['sum(Length)']||0
+        });
+
+        e.assigned++;
+        if(!hasClock) e.no_timeclock++;
+      }
+    }
+  }
+
+  // ── Absences ──
+  for (const row of state.absences) {
+    const empName=(row['Employee']||'').toString().trim(), reporter=(row['Reporter']||'').toString().trim();
+    if(!empName) continue;
+    if(!strDateInRange(fmtDate(row['Shift Date']))) continue; // ← date filter
+    const e=get(empName); if(!e) continue;
+    const isSelf=normName(empName)===normName(reporter);
+    if(isSelf) e.abs_self++; else e.abs_staff++;
+    detail[normName(empName)].absences.push({
+      date:fmtDate(row['Shift Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`,
+      site:row['Job Site']||'', position:row['Position']||'', notice:row['Notice']||'',
+      reporter, note:row['Reporter Note']||'', action:row['Action']||'', isSelf
+    });
+  }
+
+  // ── Shift Requests ──
+  const coveredStatuses=new Set(['accepted','approved']);
+  for (const row of state.shifts) {
+    const assignee=(row['Assignee']||'').toString().trim();
+    const type=(row['Type']||'').toString().trim().toLowerCase();
+    const status=(row['Status']||'').toString().trim().toLowerCase();
+    const acceptedBy=(row['Accepted By']||'').toString().trim();
+    if(!assignee) continue;
+    if(!strDateInRange(fmtDate(row['Shift Start Date']))) continue; // ← date filter
+    const e=get(assignee); if(!e) continue;
+    if(type==='drop'||type==='swap') {
+      e.dropped++;
+      const wasCovered=coveredStatuses.has(status)&&acceptedBy;
+      if(wasCovered) {
+        e.covered++;
+        if(acceptedBy!==assignee) {
+          const picker=get(acceptedBy);
+          if(picker) {
+            picker.picked_up++;
+            detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'' });
+          }
+        }
+      } else { e.uncovered++; }
+      detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'' });
+    }
+  }
+
+  const results=Object.values(emp).map(e=>{
+    // UPDATED PERCENTAGE MATH: e.covered is now added to the denominator
+    const totalAssigned=e.assigned+e.picked_up+e.covered;
+    const worked=Math.max(0,(e.assigned-e.no_timeclock)+e.picked_up);
+    const pct=totalAssigned>0?Math.round((worked/totalAssigned)*100):null;
+    return {...e, worked, total_assigned:totalAssigned, pct};
+  }).sort((a,b)=>a.name.localeCompare(b.name));
+
+  // Restore original state arrays
+  state.absences = _abs;
+  state.clockin  = _clk;
+  state.shifts   = _sft;
+
+  return {results, detailMap:detail, rawShifts};
+}
+
+// ── Prep/Close analysis ───────────────────────────────────────────────────────
+function buildPrepCloseData(rawShifts) {
+  const byEmpType = {};
+
+  for (const s of rawShifts) {
+    const isPrep  = (s.startH >= 6 && s.startH <= 9);
+    const isClose = (s.startH >= 19 && s.startH <= 21);
+    
+    if(!isPrep && !isClose) continue;
+
+    if(!byEmpType[s.nameKey]) byEmpType[s.nameKey]={ name:s.name, prep:{}, close:{} };
+    const bucket = isPrep ? 'prep' : 'close';
+    if(!byEmpType[s.nameKey][bucket][s.dow]) byEmpType[s.nameKey][bucket][s.dow]=[];
+    
+    byEmpType[s.nameKey][bucket][s.dow].push({
+      date: s.date, rawDate: s.rawDate,
+      hasClock: s.hasClock,
+      site: s.site,
+      notes: s.notes,
+      startH: s.startH,
+      startM: s.startM,
+      startLabel: s.startH < 12 ? `${s.startH}:${String(s.startM).padStart(2,'0')}am` : `${s.startH === 12 ? 12 : s.startH - 12}:${String(s.startM).padStart(2,'0')}pm`
+    });
+  }
+
+  // FUZZY MATCH LOGIC
+  for (const empKey in byEmpType) {
+    const empTruePunches = rawShifts.filter(r => r.nameKey === empKey && r.hasClock === true);
+    
+    for (const bucket of ['prep', 'close']) {
+       for (const dow in byEmpType[empKey][bucket]) {
+          const shifts = byEmpType[empKey][bucket][dow];
+          
+          for (const shift of shifts) {
+             if (!shift.hasClock) {
+                const matched = empTruePunches.find(act => {
+                   if (act.date !== shift.date) return false;
+                   const schedMin = (shift.startH * 60) + shift.startM;
+                   const actMin = (act.startH * 60) + act.startM;
+                   return Math.abs(schedMin - actMin) <= 90; // 1.5 Hour Tolerance
+                });
+                
+                if (matched) {
+                   shift.hasClock = true;
+                   shift.notes = (shift.notes ? shift.notes + " " : "") + "(Resolved via fuzzy match)";
+                }
+             }
+          }
+          
+          const byDate = {};
+          for (const s of shifts) {
+             if (!byDate[s.date]) byDate[s.date] = [];
+             byDate[s.date].push(s);
+          }
+          const uniqueShifts = [];
+          for (const d in byDate) {
+             const dayShifts = byDate[d];
+             const clocked = dayShifts.find(x => x.hasClock);
+             if (clocked) uniqueShifts.push(clocked);
+             else uniqueShifts.push(dayShifts[0]);
+          }
+          
+          byEmpType[empKey][bucket][dow] = uniqueShifts.sort((a,b)=> {
+              if (a.rawDate && b.rawDate) return a.rawDate.d - b.rawDate.d;
+              return 0;
+          });
+       }
+    }
+  }
+
+  const empRows = [];
+  for (const [key, data] of Object.entries(byEmpType)) {
+    const summarize = (dowMap) => {
+      const commitments = [];
+      let totalAll=0, workedAll=0;
+      for (const dow of DAYS) {
+        if(!dowMap[dow]) continue;
+        const shifts=dowMap[dow];
+        const total=shifts.length;
+        const worked=shifts.filter(s=>s.hasClock).length;
+        const pct=total>0?Math.round((worked/total)*100):0;
+        const recurring=total>=2;
+        let status='once';
+        if(recurring) { status=pct>=80?'met':pct>=50?'partial':'missed'; }
+        commitments.push({dow, total, worked, pct, recurring, status, shifts});
+        totalAll+=total; workedAll+=worked;
+      }
+      const overallPct=totalAll>0?Math.round((workedAll/totalAll)*100):null;
+      return {commitments, totalAll, workedAll, overallPct};
+    };
+
+    const prep  = summarize(data.prep);
+    const close = summarize(data.close);
+    const hasPrep  = prep.totalAll>0;
+    const hasClose = close.totalAll>0;
+    if(!hasPrep&&!hasClose) continue;
+
+    const allStatuses=[...prep.commitments,...close.commitments].filter(c=>c.recurring).map(c=>c.status);
+    let overallStatus='ok';
+    if(allStatuses.includes('missed')) overallStatus='missed';
+    else if(allStatuses.includes('partial')) overallStatus='partial';
+
+    empRows.push({ key, name:data.name, prep, close, hasPrep, hasClose, overallStatus });
+  }
+
+  empRows.sort((a,b)=>a.name.localeCompare(b.name));
+  return empRows;
+}
+
+// ── Mode switching ────────────────────────────────────────────────────────────
+function setMode(mode) {
+  state.mode=mode;
+  document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
+  renderMain();
+}
+
+function renderMain() {
+  if(!state.results) return;
+  if(state.mode==='attendance') renderAttendance();
+  else renderPrepClose();
+  // Let the DOM paint first, then measure real heights
+  updateStickyOffsets(); requestAnimationFrame(updateStickyOffsets);
+}
+
+// ── Attendance mode ───────────────────────────────────────────────────────────
+function renderAttendance() {
+  const results=state.results;
+  const total=results.length;
+  const flagged=results.filter(r=>r.pct!==null&&r.pct<80).length;
+  const totDrops=results.reduce((s,r)=>s+r.dropped,0);
+  const totUnc=results.reduce((s,r)=>s+r.uncovered,0);
+  const totAbs=results.reduce((s,r)=>s+r.abs_self+r.abs_staff,0);
+
+  document.getElementById('main').innerHTML=`
+  <div class="main-header">
+    <div class="stats-sticky"><div class="stats-row cols-5">
+      <div class="stat-card"><div class="val">${total}</div><div class="lbl">Employees</div></div>
+      <div class="stat-card"><div class="val red">${flagged}</div><div class="lbl">Under 80% Attendance</div></div>
+      <div class="stat-card"><div class="val">${totAbs}</div><div class="lbl">Total Absences</div></div>
+      <div class="stat-card"><div class="val">${totDrops}</div><div class="lbl">Shifts Dropped</div></div>
+      <div class="stat-card"><div class="val">${totUnc}</div><div class="lbl">Uncovered Drops</div></div>
+    </div></div>
+  </div>
+  <div class="filter-bar-sticky">
+    <div class="filter-row">
+      <input type="text" placeholder="Search by name…" oninput="attFilter(this.value)">
+      <label><input type="checkbox" onchange="attFlagged(this.checked)"> At Risk only (&lt;80%)</label>
+      <span class="row-count" id="att-row-count">${total} employees</span>
+    </div>
+  </div>
+  <div class="main-scroll">
+  <div id="results-section">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr class="group-row">
+            <th colspan="2" style="position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+            <th colspan="4" class="g-attendance sep-left">Attendance</th>
+            <th colspan="2" class="g-absences sep-left">Absences</th>
+            <th colspan="4" class="g-drops sep-left">Shift Drops</th>
+          </tr>
+          <tr class="col-row">
+            <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+            <th onclick="attSort('name')" style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px">Employee</th>
+            <th class="sep-left" onclick="attSort('total_assigned')">Assigned</th>
+            <th onclick="attSort('worked')">Worked</th>
+            <th onclick="attSort('no_timeclock')">No Clock-In</th>
+            <th onclick="attSort('pct')">Att. %</th>
+            <th class="sep-left" onclick="attSort('abs_self')">Self-Reported</th>
+            <th onclick="attSort('abs_staff')">Staff-Marked</th>
+            <th class="sep-left" onclick="attSort('dropped')">Dropped</th>
+            <th onclick="attSort('covered')">Filled by Someone</th>
+            <th onclick="attSort('uncovered')">Left Open</th>
+            <th onclick="attSort('picked_up')">Covered for Others</th>
+          </tr>
+        </thead>
+        <tbody id="att-tbody"></tbody>
+      </table>
+    </div>
+  </div></div>`;
+  renderAttRows();
+}
+
+// ── Manual clock-in overrides ────────────────────────────────────────────────
+function markWorked(shiftKey, nameKey) {
+  const already = state.overrides.has(shiftKey);
+  if (already) state.overrides.delete(shiftKey);
+  else         state.overrides.add(shiftKey);
+
+  const d = state.detailMap[nameKey];
+  if (d) {
+    const entry = d.clockin.find(s => shiftKey === `${nameKey}|${s.date}|${s.time}`);
+    if (entry) entry.hasClock = !already;
+  }
+
+  recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+}
+
+function recomputeEmployee(nameKey) {
+  const r = state.results.find(x => normName(x.name) === nameKey);
+  if (!r) return;
+  const d = state.detailMap[nameKey];
+  if (!d) return;
+  r.worked       = d.clockin.filter(s => s.hasClock).length + r.picked_up;
+  r.no_timeclock = d.clockin.filter(s => !s.hasClock).length;
+  r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
+}
+
+function refreshAttStats() {
+  const flagged = state.results.filter(r => r.pct !== null && r.pct < 80).length;
+  const cards = document.querySelectorAll('.stat-card .val');
+  if (cards[1]) cards[1].textContent = flagged;
+}
+
+function renderAttRows() {
+  const tbody=document.getElementById('att-tbody');
+  if(!tbody||!state.results) return;
+  const s=state.att;
+  let rows=[...state.results];
+  if(s.filterText){ const q=s.filterText.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(q)); }
+  if(s.showFlaggedOnly) rows=rows.filter(r=>r.pct!==null&&r.pct<80);
+  rows.sort((a,b)=>{ let va=a[s.sortCol],vb=b[s.sortCol]; if(va==null)va=s.sortAsc?-Infinity:Infinity; if(vb==null)vb=s.sortAsc?-Infinity:Infinity; if(typeof va==='string')va=va.toLowerCase(); if(typeof vb==='string')vb=vb.toLowerCase(); return va<vb?(s.sortAsc?-1:1):va>vb?(s.sortAsc?1:-1):0; });
+  const countEl=document.getElementById('att-row-count');
+  if(countEl) countEl.textContent=`${rows.length} employee${rows.length!==1?'s':''}`;
+  const num=(v,extra='')=>`<td class="num${!v||v===0?' zero':''}${extra?' '+extra:''}">${v>0?v:'—'}</td>`;
+  tbody.innerHTML=rows.map(r=>{
+    const key=normName(r.name), isOpen=s.openRows.has(key);
+    const pct=r.pct;
+    const pctCls=pct===null?'':pct>=90?'c-ok':pct>=80?'c-warn':'c-red';
+    const flagged=pct!==null&&pct<80;
+    return `<tr class="summary-row${flagged?' flagged':''}${isOpen?' open':''}" onclick="toggleAttDetail('${key}')">
+      <td class="expand-arrow">${isOpen?'▼':'▶'}</td>
+      <td class="name-cell">${esc(r.name)}${flagged?'<span class="flag-badge">At Risk</span>':''}</td>
+      ${num(r.total_assigned,'sep-left')}${num(r.worked)}
+      <td class="num${r.no_timeclock>0?' c-warn':' zero'}">${r.no_timeclock>0?r.no_timeclock:'—'}</td>
+      <td class="pct ${pctCls}">${pct!==null?pct+'%':'—'}</td>
+      ${num(r.abs_self,'sep-left')}${num(r.abs_staff)}
+      ${num(r.dropped,'sep-left')}${num(r.covered)}
+      <td class="num${r.uncovered>0?' c-red':' zero'}">${r.uncovered>0?r.uncovered:'—'}</td>
+      ${num(r.picked_up)}
+    </tr>${isOpen?`<tr class="detail-row"><td colspan="12">${buildAttDetail(key,r)}</td></tr>`:''}`;
+  }).join('');
+}
+
+function buildAttDetail(key,r) {
+  const d=state.detailMap[key]||{absences:[],shifts:[],clockin:[]};
+  // Per-employee no-clock-in filter state
+  if (!state.shiftFilter) state.shiftFilter = {};
+  const showOnlyNoClock = !!state.shiftFilter[key];
+  const showNewestFirst = !!state.shiftFilter[key+'_asc'];
+
+  // Sort all clockin entries by date+startTime so all types intermingle chronologically
+  const MONTHS_IDX = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function shiftSortKey(s) {
+    const dm = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!dm) return 0;
+    const baseMs = Date.UTC(+dm[3], MONTHS_IDX[dm[1]]||0, +dm[2]);
+    const t = s.time ? s.time.split('–')[0].trim() : '';
+    const tm = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    let hm = 0;
+    if (tm) {
+      let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
+      if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+      if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
+      hm = (h * 60 + m) * 60000;
+    }
+    return baseMs + hm;
+  }
+
+  const allClockIn = [...d.clockin].sort((a, b) => shiftSortKey(a) - shiftSortKey(b));
+  let clockin = showOnlyNoClock ? allClockIn.filter(s => !s.hasClock) : allClockIn;
+  if (showNewestFirst) clockin = [...clockin].reverse();
+  const noCockInCount = allClockIn.filter(s => !s.hasClock).length;
+  const absences=[...d.absences], shifts=[...d.shifts];
+  // Build a set of dates that have an absence entry, for quick lookup
+  const absenceDates = new Set(absences.map(a => a.date));
+
+  const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClock?'No unclocked shifts':'No shift data'}</p>`:clockin.map(s=>{
+    const sKey=`${key}|${s.date}|${s.time}`;
+    const isManual = state.overrides.has(sKey);
+    const isAuto   = state.autocorrections && state.autocorrections.has(sKey);
+    const hasAbsence = !s.hasClock && absenceDates.has(s.date);
+    let badge, btn='';
+    if (s.hasClock && isManual) {
+      badge = '<span class="di-badge manual">Manually Marked</span>';
+      btn   = `<button class="mark-btn undo" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">↩ Undo</button>`;
+    } else if (s.hasClock && isAuto) {
+      badge = '<span class="di-badge autocorrect">Auto-Corrected</span>';
+      btn   = `<button class="mark-btn undo" onclick="event.stopPropagation();undoAutoCorrection('${sKey.replace(/'/g,"\\'")}','${key}')">↩ Undo</button>`;
+    } else if (s.hasClock) {
+      badge = '<span class="di-badge clocked">Clocked In</span>';
+    } else {
+      badge = '<span class="di-badge noclock">No Clock-In</span>';
+      btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
+    }
+    const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
+    return `<div class="detail-item${hasAbsence?' has-absence':''}">
+      <div class="di-date">${esc(s.date)} ${badge}${btn}${absBadge}</div>
+      <div class="di-meta">${[s.time,s.length,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
+      ${s.notes?`<div class="di-note">${esc(s.notes)}</div>`:''}
+    </div>`;
+  }).join('');
+  const absHtml=!absences.length?'<p class="detail-empty">No absences recorded</p>':absences.map(a=>`
+    <div class="detail-item">
+      <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span></div>
+      <div class="di-meta">${[a.time,a.site,a.position].filter(Boolean).map(esc).join(' · ')}${a.action&&a.action!=='None'?' · '+esc(a.action):''}</div>
+      ${!a.isSelf?`<div class="di-meta">Reported by: <strong>${esc(a.reporter)}</strong></div>`:''}
+      ${a.note?`<div class="di-note">${esc(a.note)}</div>`:''}
+    </div>`).join('');
+  const shiftHtml=!shifts.length?'<p class="detail-empty">No shift requests</p>':shifts.map(s=>{
+    const [bcls,btxt]=s.type==='pickup'?['filled','Covered for Others']:s.type==='swap'?['swap','Swap']:['drop','Drop'];
+    return `<div class="detail-item">
+      <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${s.status?' · '+esc(s.status):''}</div>
+      <div class="di-meta">${[s.time,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
+      ${s.acceptedBy?`<div class="di-meta">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
+      ${s.coveredFor?`<div class="di-meta">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
+      ${s.message?`<div class="di-note">${esc(s.message)}</div>`:''}
+    </div>`; }).join('');
+  return `<div class="detail-panel"><div class="detail-sections">
+    <div class="detail-section">
+      <h4 class="h-attendance">
+        Shift History (${allClockIn.length})
+        <button class="shift-filter-btn" onclick="event.stopPropagation();toggleShiftSort('${key}')">${showNewestFirst?'↑ Newest first':'↓ Oldest first'}</button>
+        ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClock?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClock?'Show all':'No clock-in only'}</button>`:''}
+      </h4>
+      ${clockHtml}
+    </div>
+    <div class="detail-section"><h4 class="h-absences">Absences (${absences.length})</h4>${absHtml}</div>
+    <div class="detail-section"><h4 class="h-drops">Shift Requests (${shifts.length})</h4>${shiftHtml}</div>
+  </div></div>`;
+}
+
+function toggleShiftFilter(key) {
+  if (!state.shiftFilter) state.shiftFilter = {};
+  state.shiftFilter[key] = !state.shiftFilter[key];
+  renderAttRows();
+}
+function toggleShiftSort(key) {
+  if (!state.shiftFilter) state.shiftFilter = {};
+  state.shiftFilter[key+'_asc'] = !state.shiftFilter[key+'_asc'];
+  renderAttRows();
+}
+
+function attSort(col){ const s=state.att; s.sortAsc=s.sortCol===col?!s.sortAsc:col==='name'; s.sortCol=col; renderAttRows(); }
+function attFilter(val){ state.att.filterText=val; renderAttRows(); }
+function attFlagged(val){ state.att.showFlaggedOnly=val; renderAttRows(); }
+function scrollRowIntoView(key) {
+  // Find the summary row for this key and scroll it so it sits just below
+  // all fixed headers (top bar + stats + filter + thead)
+  const rows = document.querySelectorAll('tbody tr.summary-row');
+  let target = null;
+  for (const row of rows) {
+    // The row's onclick contains the key
+    if (row.getAttribute('onclick') && row.getAttribute('onclick').includes("'" + key + "'")) {
+      target = row; break;
+    }
+  }
+  if (!target) return;
+  // Total fixed height = top header + stats + filter + thead
+  const mainEl  = document.getElementById('main');
+  const statsFilter = mainEl ? parseInt(mainEl.style.paddingTop || 0) : 0;
+  const thead   = document.querySelector('thead');
+  const theadH  = thead ? thead.offsetHeight : 0;
+  const totalOffset = 45 + statsFilter + theadH + 4;
+  const rowTop  = target.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo({ top: rowTop - totalOffset, behavior: 'smooth' });
+}
+
+function scrollPcRowIntoView(key) {
+  const rows = document.querySelectorAll('tbody tr.summary-row');
+  let target = null;
+  for (const row of rows) {
+    if (row.getAttribute('onclick') && row.getAttribute('onclick').includes("'" + key + "'")) {
+      target = row; break;
+    }
+  }
+  if (!target) return;
+  const mainEl     = document.getElementById('main');
+  const statsFilter = mainEl ? parseInt(mainEl.style.paddingTop || 0) : 0;
+  const thead      = document.querySelector('thead');
+  const theadH     = thead ? thead.offsetHeight : 0;
+  const totalOffset = 45 + statsFilter + theadH + 4;
+  const rowTop     = target.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo({ top: rowTop - totalOffset, behavior: 'smooth' });
+}
+
+function toggleAttDetail(key){ const s=state.att.openRows; const wasOpen=s.has(key); s.clear(); if(!wasOpen) s.add(key); renderAttRows(); requestAnimationFrame(() => { updateStickyOffsets(); if(!wasOpen) scrollRowIntoView(key); }); }
+
+// ── Prep/Close mode ───────────────────────────────────────────────────────────
+function renderPrepClose() {
+  const data = state.prepCloseData;
+  if (!data || !data.length) {
+    document.getElementById('main').innerHTML = '<p style="color:#aaa;padding:40px">No prep or closing shift data found.</p>';
+    return;
+  }
+
+  const allEmps = [...new Map(data.filter(e=>e.hasPrep||e.hasClose).map(e=>[e.key,e])).values()]
+    .sort((a,b) => a.name.localeCompare(b.name));
+
+  const prepEmps   = data.filter(e=>e.hasPrep);
+  const closeEmps  = data.filter(e=>e.hasClose);
+  const prepIssues  = prepEmps.filter(e=>e.prep.commitments.some(c=>c.recurring&&c.pct<50)).length;
+  const closeIssues = closeEmps.filter(e=>e.close.commitments.some(c=>c.recurring&&c.pct<50)).length;
+
+  // Filter
+  const q = (state.pc.filterText||'').toLowerCase();
+  const showIssues = state.pc.showIssuesOnly.prep || state.pc.showIssuesOnly.close;
+  let rows = allEmps;
+  if (q) rows = rows.filter(e => e.name.toLowerCase().includes(q));
+  if (showIssues) rows = rows.filter(e =>
+    (e.hasPrep  && e.prep.commitments.some(c=>c.recurring&&c.pct<50)) ||
+    (e.hasClose && e.close.commitments.some(c=>c.recurring&&c.pct<50))
+  );
+
+  const tableRows = rows.map(e => buildPcUnifiedRow(e)).join('');
+
+  document.getElementById('main').innerHTML = `
+  <div class="main-header">
+    <div class="stats-sticky"><div class="stats-row cols-4" style="margin-bottom:10px">
+      <div class="stat-card"><div class="val">${prepEmps.length}</div><div class="lbl">Employees with Prep Shifts</div></div>
+      <div class="stat-card"><div class="val red">${prepIssues}</div><div class="lbl">Prep Commitment Issues</div></div>
+      <div class="stat-card"><div class="val">${closeEmps.length}</div><div class="lbl">Employees with Closing Shifts</div></div>
+      <div class="stat-card"><div class="val red">${closeIssues}</div><div class="lbl">Closing Commitment Issues</div></div>
+    </div></div>
+  </div>
+  <div class="filter-bar-sticky">
+    <div class="filter-row">
+      <input type="text" placeholder="Search by name…" oninput="pcFilterUnified(this.value)">
+      <label><input type="checkbox" ${state.pc.showIssuesOnly.prep ? 'checked' : ''} onchange="pcIssuesUnified(this.checked)"> Issues only</label>
+      <span class="row-count">${rows.length} employees</span>
+    </div>
+  </div>
+  <div class="main-scroll">
+  <div class="table-wrap"><table>
+    <thead>
+      <tr class="group-row">
+        <th colspan="2" style="position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+        <th colspan="2" class="g-prep sep-left">Morning Prep</th>
+        <th colspan="2" class="g-close sep-left">Closing</th>
+      </tr>
+      <tr class="col-row">
+        <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+        <th style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px">Employee</th>
+        <th class="sep-left c-attendance">Attendance %</th>
+        <th class="c-attendance">Weekly Credits <span style="font-weight:400;color:#9ca3af;font-size:9px">(days ≥50%)</span></th>
+        <th class="sep-left c-drops">Attendance %</th>
+        <th class="c-drops">Weekly Credits <span style="font-weight:400;color:#9ca3af;font-size:9px">(days ≥50%)</span></th>
+      </tr>
+    </thead>
+    <tbody>${tableRows}</tbody>
+  </table></div>
+  </div>`;
+
+  updateStickyOffsets();
+  requestAnimationFrame(updateStickyOffsets);
+}
+
+function creditSummary(empData) {
+  if (!empData || empData.totalAll === 0) return { pct: null, credits: 0, total: 0, concerns: [] };
+  const recurring = empData.commitments.filter(c => c.recurring);
+  const credits   = recurring.filter(c => c.pct >= 50).length;
+  const concerns  = recurring.filter(c => c.pct < 50).map(c => c.dow);
+  return { pct: empData.overallPct, credits, total: recurring.length, concerns };
+}
+
+function creditCell(cr, hasSide) {
+  if (!hasSide) return '<td class="num zero">—</td><td class="num zero">—</td>';
+  if (cr.total === 0) return '<td class="num" style="color:#aaa;font-style:italic">N/A</td><td class="num" style="color:#aaa;font-style:italic">N/A</td>';
+  const pctHtml = '<span class="' + (cr.pct>=80?'c-ok':cr.pct>=50?'c-warn':'c-red') + '" style="font-weight:700">' + cr.pct + '%</span>';
+  const creditHtml = '<span style="font-weight:700;color:' + (cr.credits===cr.total?'#166534':cr.credits>0?'#92400e':'#b91c1c') + '">' + cr.credits + '/' + cr.total + '</span>'
+    + (cr.concerns.length ? '<span style="color:#b91c1c;font-size:10px;margin-left:6px">⚠ ' + cr.concerns.join(', ') + '</span>' : '');
+  return '<td class="num">' + pctHtml + '</td><td style="padding:8px 14px;font-size:12px">' + creditHtml + '</td>';
+}
+
+function buildPcUnifiedRow(e) {
+  const key = e.key + '_unified';
+  const isOpen = state.pc.openRows.has(key);
+  const p = creditSummary(e.hasPrep  ? e.prep  : null);
+  const c = creditSummary(e.hasClose ? e.close : null);
+  const safeKey = e.key.replace(/'/g, "\\'");
+  const summaryRow = [
+    '<tr class="summary-row' + (isOpen ? ' open' : '') + '" onclick="togglePcUnified(\'' + safeKey + '\')">',
+    '<td class="expand-arrow">' + (isOpen ? '&#9660;' : '&#9658;') + '</td>',
+    '<td class="name-cell" style="position:sticky;left:288px;z-index:2">' + esc(e.name) + '</td>',
+    creditCell(p, e.hasPrep),
+    creditCell(c, e.hasClose),
+    '</tr>'
+  ].join('');
+
+  if (!isOpen) return summaryRow;
+
+  const detailContent = buildPcUnifiedDetail(e);
+  const detailRow = '<tr class="detail-row"><td colspan="6">' + detailContent + '</td></tr>';
+  return summaryRow + detailRow;
+}
+
+function buildPcUnifiedDetail(e) {
+  function sectionHtml(label, colorCls, empData) {
+    if (!empData || empData.totalAll === 0) return '';
+    const rows = empData.commitments.map(c => {
+      const pctCls = !c.recurring ? '' : c.pct>=80 ? 'c-ok' : c.pct>=50 ? 'c-warn' : 'c-red';
+      const statLabel = c.recurring
+        ? '<span class="' + pctCls + '" style="font-weight:700;font-size:11px">' + c.pct + '%</span>'
+          + '<span style="color:#aaa;font-size:10px;margin-left:3px">' + c.worked + '/' + c.total + '</span>'
+        : '<span style="color:#aaa;font-size:10px">one-time</span>';
+      // Each shift: compact single line
+      const shiftLines = c.shifts.map(s => {
+        const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock?'#16a34a':'#dc2626') + ';margin-right:4px;vertical-align:middle"></span>';
+        const nc  = !s.hasClock ? '<span style="color:#dc2626;font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
+        return '<div style="line-height:1.6;white-space:nowrap">' + dot
+          + '<span style="color:#374151;font-size:11px">' + esc(s.date) + '</span>'
+          + nc + '</div>';
+      }).join('');
+      const dowLabel = '<span style="font-weight:700;font-size:11px;color:#111">' + c.dow.slice(0,3)
+        + (c.recurring ? '' : '<span style="font-weight:400;color:#bbb;font-size:9px"> 1×</span>') + '</span>';
+      return '<tr style="vertical-align:top;border-bottom:1px solid #f4f4f4">'
+        + '<td style="padding:3px 8px 3px 0;white-space:nowrap">' + dowLabel + '</td>'
+        + '<td style="padding:3px 8px;white-space:nowrap">' + statLabel + '</td>'
+        + '<td style="padding:3px 0">' + shiftLines + '</td>'
+        + '</tr>';
+    }).join('');
+    return '<div>'
+      + '<div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:' + colorCls + ';margin-bottom:4px">' + label + '</div>'
+      + '<table style="border-collapse:collapse;font-size:11px"><tbody>' + rows + '</tbody></table>'
+      + '</div>';
+  }
+
+  const prepHtml  = sectionHtml('Morning Prep', '#7c3aed', e.hasPrep  ? e.prep  : null);
+  const closeHtml = sectionHtml('Closing',      '#0369a1', e.hasClose ? e.close : null);
+  const cols = (prepHtml ? 1 : 0) + (closeHtml ? 1 : 0);
+  return '<div class="detail-panel" style="display:grid;grid-template-columns:repeat(' + cols + ',auto);gap:24px;width:fit-content;margin-left:300px">'
+    + prepHtml + closeHtml + '</div>';
+}
+
+function togglePcUnified(key) {
+  const fullKey = key + '_unified';
+  const s = state.pc.openRows;
+  const wasOpen = s.has(fullKey);
+  s.clear();
+  if (!wasOpen) s.add(fullKey);
+  renderPrepClose();
+  requestAnimationFrame(() => { if (!wasOpen) scrollPcRowIntoView(key); });
+}
+
+function pcFilterUnified(val) { state.pc.filterText = val; renderPrepClose(); }
+function pcIssuesUnified(val) { state.pc.showIssuesOnly.prep = val; state.pc.showIssuesOnly.close = val; renderPrepClose(); }
+
+function togglePcDetail(key){ const s=state.pc.openRows; const wasOpen=s.has(key); s.clear(); if(!wasOpen) s.add(key); renderPrepClose(); requestAnimationFrame(() => { if(!wasOpen) scrollPcRowIntoView(key); }); }
+
+
+function pcSort(type,col){ const s=state.pc; const key=`${type}_${col}`; s.sortAsc=s.sortCol===key?!s.sortAsc:col==='name'; s.sortCol=key; renderPrepClose(); }
+function pcFilter(val){ state.pc.filterText=val; renderPrepClose(); }
+function pcIssues(val,type){ state.pc.showIssuesOnly[type]=val; renderPrepClose(); }
+
+// ── WhenIWork Clock Discrepancy Correction ────────────────────────────────────
+
+function buildTimesheetIndex() {
+  // Build a lookup: nameKey -> [{startMs, endMs}] sorted by startMs
+  // Each entry is a merged continuous block of actual clock time
+  const index = {};
+  const allTimesheets = [...(state.timesheets||[]), ...(state.timesheets2||[])];
+  if (!allTimesheets.length) return index;
+
+  const raw = {};  // nameKey -> [{startMs, endMs}]
+  for (const row of allTimesheets) {
+    const fn = (row['First Name'] || '').toString().trim();
+    const ln = (row['Last Name']  || '').toString().trim();
+    if (!fn && !ln) continue;
+    const fullName = (fn + ' ' + ln).trim();
+    const key = normName(fullName);
+    if (!key) continue;
+
+    // Parse start/end — they come as JS Date objects from XLSX
+    const startVal = row['Start Time'];
+    const endVal   = row['End Time'];
+    const toMs = v => {
+      if (v instanceof Date) return v.getTime();
+      if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
+      return null;
+    };
+    const startMs = toMs(startVal);
+    const endMs   = toMs(endVal);
+    if (startMs === null || endMs === null) continue;
+
+    if (!raw[key]) raw[key] = [];
+    raw[key].push({ startMs, endMs });
+  }
+
+  // For each person, sort and merge overlapping/adjacent blocks (within 20 min gap)
+  const GAP = 20 * 60 * 1000;
+  for (const key of Object.keys(raw)) {
+    const entries = raw[key].sort((a, b) => a.startMs - b.startMs);
+    const merged = [];
+    for (const e of entries) {
+      if (merged.length && e.startMs <= merged[merged.length-1].endMs + GAP) {
+        merged[merged.length-1].endMs = Math.max(merged[merged.length-1].endMs, e.endMs);
+      } else {
+        merged.push({ startMs: e.startMs, endMs: e.endMs });
+      }
+    }
+    index[key] = merged;
+  }
+  return index;
+}
+
+function shiftWindowMs(shift) {
+  // Convert a shift's date+time string to start/end ms
+  // shift.time is like "1pm – 4pm" or "7:30am – 11am"
+  // shift.date is like "Jan 20, 2026"
+  const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  const dateParts = shift.date ? shift.date.match(/(\w+)\s+(\d+),\s+(\d+)/) : null;
+  if (!dateParts) return null;
+  const mo = MONTHS[dateParts[1]];
+  const d  = parseInt(dateParts[2]);
+  const y  = parseInt(dateParts[3]);
+
+  const parseTime12 = (str) => {
+    if (!str) return null;
+    str = str.trim();
+    const m = str.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    if (!m) return null;
+    let h = parseInt(m[1]);
+    const min = m[2] ? parseInt(m[2]) : 0;
+    const ampm = m[3].toLowerCase();
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    return { h, min };
+  };
+
+  const timeParts = shift.time ? shift.time.split('–').map(s => s.trim()) : [];
+  if (timeParts.length < 2) return null;
+  const start = parseTime12(timeParts[0]);
+  const end   = parseTime12(timeParts[1]);
+  if (!start || !end) return null;
+
+  const startMs = Date.UTC(y, mo, d, start.h, start.min);
+  let endMs     = Date.UTC(y, mo, d, end.h, end.min);
+  // Handle midnight crossings (e.g. 8pm–12am)
+  if (endMs <= startMs) endMs += 86400000;
+  return { startMs, endMs };
+}
+
+function correctDiscrepancies() {
+  if (!state.timesheets || !state.timesheets.length) {
+    alert('Please upload the Timesheets report first.');
+    return;
+  }
+  const index = buildTimesheetIndex();
+  const TOLERANCE = 15 * 60 * 1000; // 15 min tolerance
+  let count = 0;
+  const newCorrections = new Set();
+
+  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+    const blocks = index[nameKey];
+    if (!blocks) continue;
+
+    for (const shift of detail.clockin) {
+      if (shift.hasClock) continue; // already clocked in
+      const sKey = `${nameKey}|${shift.date}|${shift.time}`;
+      if (state.autocorrections.has(sKey)) continue; // already corrected
+
+      const win = shiftWindowMs(shift);
+      if (!win) continue;
+
+      // Check if any timesheet block covers a meaningful portion of this shift
+      // A block covers this shift if it started before (or near) shift start
+      // AND ended after (or near) shift end
+      const covered = blocks.some(b =>
+        b.startMs <= win.startMs + TOLERANCE &&
+        b.endMs   >= win.endMs   - TOLERANCE
+      );
+
+      if (covered) {
+        shift.hasClock = true;
+        state.autocorrections.add(sKey);
+        newCorrections.add(nameKey);
+        count++;
+      }
+    }
+  }
+
+  // Recompute all affected employees
+  for (const nameKey of newCorrections) {
+    recomputeEmployee(nameKey);
+  }
+
+  // Update UI
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+  if (count > 0) {
+    document.getElementById('undo-corrections-btn').style.display = '';
+    alert(`Auto-corrected ${count} shift${count===1?'':'s'} across ${newCorrections.size} employee${newCorrections.size===1?'':'s'}.`);
+  } else {
+    alert('No discrepancies found matching the correction criteria.');
+  }
+}
+
+function undoAutoCorrection(shiftKey, nameKey) {
+  if (!state.autocorrections.has(shiftKey)) return;
+  state.autocorrections.delete(shiftKey);
+  const d = state.detailMap[nameKey];
+  if (d) {
+    const entry = d.clockin.find(s => shiftKey === `${nameKey}|${s.date}|${s.time}`);
+    if (entry) entry.hasClock = false;
+  }
+  recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+}
+
+function undoAllCorrections() {
+  if (!state.autocorrections.size) return;
+  const affected = new Set();
+  for (const sKey of state.autocorrections) {
+    const nameKey = sKey.split('|')[0];
+    affected.add(nameKey);
+    const d = state.detailMap[nameKey];
+    if (d) {
+      const entry = d.clockin.find(s => sKey === `${nameKey}|${s.date}|${s.time}`);
+      if (entry) entry.hasClock = false;
+    }
+  }
+  state.autocorrections.clear();
+  for (const nameKey of affected) recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+  updateCorrectionCount();
+  document.getElementById('undo-corrections-btn').style.display = 'none';
+}
+
+function updateCorrectionCount() {
+  const n = state.autocorrections ? state.autocorrections.size : 0;
+  const el = document.getElementById('correction-count');
+  if (el) el.textContent = n;
+  const btn = document.getElementById('undo-corrections-btn');
+  if (btn) btn.style.display = n > 0 ? '' : 'none';
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+// ── Dynamic sticky offset calculation ────────────────────────────────────────
+function updateStickyOffsets() {
+  const mainHeader = document.querySelector('.main-header');
+  const filterBar  = document.querySelector('.filter-bar-sticky');
+  if (!mainHeader || !filterBar) return;
+
+  const headerH    = 45;
+  const statsH     = mainHeader.offsetHeight;
+  const filterH    = filterBar.offsetHeight;
+  const totalFixed = headerH + statsH + filterH;
+
+  // Position filter bar just below stats bar
+  filterBar.style.top = (headerH + statsH) + 'px';
+
+  // Measure thead rows — offsetHeight is synchronous and doesn't depend
+  // on sticky positioning, so no rAF needed
+  // Set group-row and col-row sticky tops
+  const groupRow = document.querySelector('thead tr.group-row');
+  const colRow   = document.querySelector('thead tr.col-row');
+  const groupH   = groupRow ? groupRow.offsetHeight : 0;
+  const colH     = colRow   ? colRow.offsetHeight   : 0;
+  const theadH   = groupH + colH;
+  document.querySelectorAll('thead tr.group-row th')
+    .forEach(th => th.style.top = totalFixed + 'px');
+  document.querySelectorAll('thead tr.col-row th')
+    .forEach(th => th.style.top = (totalFixed + groupH) + 'px');
+
+  // padding-top on #main pushes tbody below all fixed elements.
+  // body already has padding-top:45px for the top header,
+  // so #main only needs to account for stats + filter + thead.
+  // Set padding-top on #main itself — survives innerHTML replacement
+  const mainEl = document.getElementById('main');
+  if (mainEl) mainEl.style.paddingTop = (statsH + filterH) + 'px';
+  document.documentElement.style.scrollPaddingTop = totalFixed + 'px';
+}
+
+window.addEventListener('resize', updateStickyOffsets);
+
+function exportSnapshot() {
+  // Build a filename from the active date range
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const fromStr = (fromEl && fromEl.value) ? fromEl.value : '';
+  const toStr   = (toEl   && toEl.value)   ? toEl.value   : '';
+  const fmt = s => s ? s.replace(/-/g, '') : '';  // 20260120
+  const rangePart = fromStr && toStr
+    ? fmt(fromStr) + '-' + fmt(toStr)
+    : fromStr ? fmt(fromStr) + '-present'
+    : toStr   ? 'until-' + fmt(toStr)
+    : 'all-dates';
+  const filename = 'attendance-snapshot-' + rangePart + '.html';
+
+  // Serialize all loaded state data as JSON to embed in the snapshot
+  const snapshotData = {
+    absences:  state.absences  || [],
+    clockin:   state.clockin   || [],
+    shifts:    state.shifts    || [],
+    absences2: state.absences2 || [],
+    timesheets: state.timesheets || [],
+    timesheets2: state.timesheets2 || [],
+    clockin2:  state.clockin2  || [],
+    shifts2:   state.shifts2   || [],
+    dateFrom:  fromStr,
+    dateTo:    toStr
+  };
+  const dataJson = JSON.stringify(snapshotData);
+
+  // Build the bootstrap script — runs after page scripts via defer-like polling
+  const bootstrapScript = `
+<script id="snapshot-data-bootstrap">
+(function() {
+  var d = ${JSON.stringify(snapshotData)};
+  function boot() {
+    // Wait until app globals are ready
+    if (typeof state === 'undefined' || typeof analyze === 'undefined' || typeof checkReady === 'undefined') {
+      return setTimeout(boot, 30);
+    }
+    // Inject raw spreadsheet data — state.att.openRows etc are already Sets from const state = {...}
+    state.absences  = d.absences;
+    state.clockin   = d.clockin;
+    state.shifts    = d.shifts;
+    state.absences2 = d.absences2 || [];
+    state.timesheets = d.timesheets || [];
+    state.timesheets2 = d.timesheets2 || [];
+    state.clockin2  = d.clockin2  || [];
+    state.shifts2   = d.shifts2   || [];
+    // Set date filter inputs
+    var fromEl = document.getElementById('filter-date-from');
+    var toEl   = document.getElementById('filter-date-to');
+    if (fromEl && d.dateFrom) fromEl.value = d.dateFrom;
+    if (toEl   && d.dateTo)   toEl.value   = d.dateTo;
+    // Mark upload zones as loaded
+    var zoneMap = {absences:'absences', clockin:'clockin', shifts:'shifts',
+                   absences2:'absences2', clockin2:'clockin2', shifts2:'shifts2'};
+    Object.keys(zoneMap).forEach(function(key) {
+      var arr  = state[key];
+      var suffix = key.endsWith('2') ? '2' : '';
+      var base   = key.replace('2','');
+      var zEl  = document.getElementById('zone-' + base + suffix);
+      var sEl  = document.getElementById('status-' + base + suffix);
+      if (zEl && sEl && arr && arr.length) {
+        zEl.classList.add('loaded');
+        sEl.className   = 'zone-status ok';
+        sEl.textContent = '\u2713 ' + arr.length + ' rows loaded';
+      }
+    });
+    // Enable buttons
+    document.getElementById('run-btn').disabled      = false;
+    document.getElementById('export-btn').disabled   = false;
+    document.getElementById('snapshot-btn').disabled = false;
+    document.getElementById('correct-btn').disabled = false;
+    // Update date filter label then analyze
+    if (typeof onDateFilterChange === 'function') onDateFilterChange();
+    analyze();
+  }
+  // Start polling immediately — scripts may already be parsed
+  boot();
+})();
+<\/script>`;
+
+  // Remove any existing bootstrap script from the DOM before snapshotting
+  const existingBoot = document.getElementById('snapshot-data-bootstrap');
+  if (existingBoot) existingBoot.remove();
+
+  // Inject bootstrap as a real script element so outerHTML captures it correctly
+  const bootEl = document.createElement('script');
+  bootEl.id = 'snapshot-data-bootstrap';
+  // Use text content so it won't be escaped
+  bootEl.textContent = bootstrapScript
+    .replace(/^\s*<script[^>]*>\s*/, '')
+    .replace(/\s*<\/script>\s*$/, '');
+  document.body.appendChild(bootEl);
+
+  // Now capture the full HTML with the injected script intact
+  const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+  // Clean up — remove the injected element from the live page
+  bootEl.remove();
+
+  // Download
+  const blob = new Blob([snapshotHtml], {type: 'text/html'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportReport() {
+  if(!state.results) return;
+  const wb=XLSX.utils.book_new();
+
+  const attHeaders=['Employee Name','Total Assigned Shifts','Total Worked Shifts','Shifts w/ No Clock-In','Attendance %','Absences (Self-Reported)','Absences (Staff-Marked)','Shifts Dropped','Drops Filled by Someone','Drops Left Open','Covered for Others','At Risk (<80%)'];
+  const attRows=[...state.results].sort((a,b)=>a.name.localeCompare(b.name));
+  const attData=[attHeaders,...attRows.map(r=>[r.name,r.total_assigned,r.worked,r.no_timeclock,r.pct!==null?r.pct/100:'',r.abs_self,r.abs_staff,r.dropped,r.covered,r.uncovered,r.picked_up,r.pct!==null&&r.pct<80?'YES':''])];
+  const ws1=XLSX.utils.aoa_to_sheet(attData);
+  const range1=XLSX.utils.decode_range(ws1['!ref']);
+  for(let R=1;R<=range1.e.r;R++){ const c=ws1[XLSX.utils.encode_cell({r:R,c:4})]; if(c&&c.v!==''){c.z='0.0%';c.t='n';} }
+  ws1['!cols']=[{wch:26},{wch:18},{wch:18},{wch:22},{wch:12},{wch:22},{wch:22},{wch:15},{wch:22},{wch:14},{wch:20},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Attendance');
+
+  if(state.prepCloseData) {
+    const pcHeaders=['Employee','Type','Day','Total Shifts','Worked Shifts','Attendance %','Recurring Commitment','Status'];
+    const pcRows=[];
+    for(const emp of state.prepCloseData) {
+      for(const [type,label] of [['prep','Prep'],['close','Closing']]) {
+        for(const c of emp[type].commitments) {
+          pcRows.push([emp.name, label, c.dow, c.total, c.worked, c.pct/100, c.recurring?'Yes':'No (one-time)', c.recurring?c.status.charAt(0).toUpperCase()+c.status.slice(1):'—']);
+        }
+      }
+    }
+    const ws2=XLSX.utils.aoa_to_sheet([pcHeaders,...pcRows]);
+    const range2=XLSX.utils.decode_range(ws2['!ref']);
+    for(let R=1;R<=range2.e.r;R++){ const c=ws2[XLSX.utils.encode_cell({r:R,c:5})]; if(c&&c.v!==''){c.z='0%';c.t='n';} }
+    ws2['!cols']=[{wch:26},{wch:10},{wch:12},{wch:14},{wch:14},{wch:14},{wch:22},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Prep & Closing Shifts');
+  }
+
+  XLSX.writeFile(wb, `attendance_report_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+</script>
+</body>
+</html>
