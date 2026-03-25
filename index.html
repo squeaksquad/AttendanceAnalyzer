@@ -377,7 +377,8 @@ const state = {
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview' },
   overrides: new Set(),  // shift keys manually marked as worked
-  autocorrections: new Set()  // shift keys auto-corrected by discrepancy fixer
+  autocorrections: new Set(),  // shift keys auto-corrected by discrepancy fixer
+  strictDrops: true   // if true, covered drops also count against attendance
 };
 
 // ── File loading ──────────────────────────────────────────────────────────────
@@ -877,6 +878,7 @@ function buildResults() {
       const wasCovered=coveredStatuses.has(status)&&acceptedBy;
       if(wasCovered) {
         e.covered++;
+        // Give credit to picker-upper
         if(acceptedBy!==assignee) {
           const picker=get(acceptedBy);
           if(picker) {
@@ -884,14 +886,23 @@ function buildResults() {
             detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'' });
           }
         }
-      } else { e.uncovered++; }
+      } else {
+        e.uncovered++;
+        // Uncovered drops: already present in Shifts Worked with hasClock=false,
+        // so attendance penalty is already handled — no double-counting needed.
+        // Canceled/expired swaps: also remain in Shifts Worked, handled there too.
+      }
+      // Covered/accepted drops: WhenIWork removes these from Shifts Worked entirely.
+      // They don't count against dropper's attendance per policy, so no action needed.
       detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'' });
     }
   }
 
   const results=Object.values(emp).map(e=>{
-    // UPDATED PERCENTAGE MATH: e.covered is now added to the denominator
-    const totalAssigned=e.assigned+e.picked_up+e.covered;
+    // Accepted drops counted directly in assigned/no_timeclock; remove covered from denominator
+    // If strictDrops: covered drops also count against attendance (add assigned+no_timeclock per covered drop)
+    const coveredPenalty = state.strictDrops ? e.covered : 0;
+    const totalAssigned=e.assigned+e.picked_up+coveredPenalty;
     const worked=Math.max(0,(e.assigned-e.no_timeclock)+e.picked_up);
     const pct=totalAssigned>0?Math.round((worked/totalAssigned)*100):null;
     return {...e, worked, total_assigned:totalAssigned, pct};
@@ -1052,7 +1063,11 @@ function renderAttendance() {
   <div class="filter-bar-sticky">
     <div class="filter-row">
       <input type="text" placeholder="Search by name…" oninput="attFilter(this.value)">
-      <label><input type="checkbox" onchange="attFlagged(this.checked)"> At Risk only (&lt;80%)</label>
+      <label><input type="checkbox" id="at-risk-checkbox" onchange="attFlagged(this.checked)"> At Risk only (&lt;80%)</label>
+      <label id="strict-drops-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.strictDrops?'#9a3412':'#374151'};padding:3px 8px;border:1px solid ${state.strictDrops?'#fdba74':'#d1d5db'};border-radius:4px;background:${state.strictDrops?'#fff7ed':'#f9fafb'};user-select:none" onclick="toggleStrictDrops()">
+        <span id="strict-drops-indicator" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.strictDrops?'#f97316':'#d1d5db'};flex-shrink:0"></span>
+        <span id="strict-drops-label">${state.strictDrops?'Covered drops: penalized':'Covered drops: not penalized'}</span>
+      </label>
       <span class="row-count" id="att-row-count">${total} employees</span>
     </div>
   </div>
@@ -1111,6 +1126,8 @@ function recomputeEmployee(nameKey) {
   if (!r) return;
   const d = state.detailMap[nameKey];
   if (!d) return;
+  const coveredPenalty2 = state.strictDrops ? r.covered : 0;
+  r.total_assigned = (r.assigned || 0) + (r.picked_up || 0) + coveredPenalty2;
   r.worked       = d.clockin.filter(s => s.hasClock).length + r.picked_up;
   r.no_timeclock = d.clockin.filter(s => !s.hasClock).length;
   r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
@@ -1276,6 +1293,35 @@ function toggleShiftFilter(key) {
   state.shiftFilter[key] = !state.shiftFilter[key];
   renderAttRows();
 }
+function toggleStrictDrops() {
+  state.strictDrops = !state.strictDrops;
+  const indicator = document.getElementById('strict-drops-indicator');
+  const label     = document.getElementById('strict-drops-label');
+  const toggle    = document.getElementById('strict-drops-toggle');
+  if (state.strictDrops) {
+    indicator.style.background = '#f97316';
+    label.textContent = 'Covered drops: penalized';
+    toggle.style.background = '#fff7ed';
+    toggle.style.borderColor = '#fdba74';
+    toggle.style.color = '#9a3412';
+  } else {
+    indicator.style.background = '#d1d5db';
+    label.textContent = 'Covered drops: not penalized';
+    toggle.style.background = '#f9fafb';
+    toggle.style.borderColor = '#d1d5db';
+    toggle.style.color = '#374151';
+  }
+  // Re-run analysis preserving the at-risk checkbox state
+  if (state.results) {
+    const wasFlagged = state.att.showFlaggedOnly;
+    analyze();
+    state.att.showFlaggedOnly = wasFlagged;
+    const cb = document.getElementById('at-risk-checkbox');
+    if (cb) cb.checked = wasFlagged;
+    renderAttRows();
+  }
+}
+
 function toggleShiftSort(key) {
   if (!state.shiftFilter) state.shiftFilter = {};
   state.shiftFilter[key+'_asc'] = !state.shiftFilter[key+'_asc'];
