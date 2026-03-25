@@ -702,7 +702,23 @@ function analyze() {
     const built = buildResults();
     state.results     = built.results;
     state.detailMap   = built.detailMap;
-    state.prepCloseData = buildPrepCloseData(built.rawShifts);
+    // Compute total weeks in the active date range for recurring-commitment math
+    const _fromEl = document.getElementById('filter-date-from');
+    const _toEl   = document.getElementById('filter-date-to');
+    let totalWeeks = null;
+    if (_fromEl && _fromEl.value && _toEl && _toEl.value) {
+      const diffMs = new Date(_toEl.value + 'T00:00:00Z') - new Date(_fromEl.value + 'T00:00:00Z');
+      totalWeeks = Math.max(1, Math.round(diffMs / (7 * 24 * 3600 * 1000)));
+    } else if (built.rawShifts.length) {
+      // Fall back to data range
+      let minMs = Infinity, maxMs = -Infinity;
+      for (const s of built.rawShifts) {
+        const ms = shiftDateToMs(s.dateVal);
+        if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
+      }
+      if (isFinite(minMs)) totalWeeks = Math.max(1, Math.round((maxMs - minMs) / (7 * 24 * 3600 * 1000)) + 1);
+    }
+    state.prepCloseData = buildPrepCloseData(built.rawShifts, built.mergedShifts, built.allResults, totalWeeks);
     state.att.openRows.clear();
     state.pc.openRows.clear();
     state.shiftFilter = {};
@@ -908,28 +924,53 @@ function buildResults() {
     return {...e, worked, total_assigned:totalAssigned, pct};
   }).sort((a,b)=>a.name.localeCompare(b.name));
 
+  // Capture merged shifts before restoring (needed for P&C drop detection)
+  const mergedShiftsSnapshot = mergedShifts;
+
   // Restore original state arrays
   state.absences = _abs;
   state.clockin  = _clk;
   state.shifts   = _sft;
 
-  return {results, detailMap:detail, rawShifts};
+  return {results, detailMap:detail, rawShifts, mergedShifts: mergedShiftsSnapshot, allResults: results};
 }
 
 // ── Prep/Close analysis ───────────────────────────────────────────────────────
-function buildPrepCloseData(rawShifts) {
+function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWeeks) {
   const byEmpType = {};
 
+  // ── Helper: is a shift-request time window a prep or close slot? ──────────
+  // We parse the start time from the shift request to classify it.
+  function classifyRequestTime(startTimeVal) {
+    if (!startTimeVal) return null;
+    const p = parseUniversal(startTimeVal);
+    if (!p) return null;
+    const h = p.h;
+    if (h >= 6 && h <= 9)   return 'prep';
+    if (h >= 19 && h <= 21) return 'close';
+    return null;
+  }
+
+  // ── Step 1: Index all dates already in rawShifts per person ──────────────
+  // Used to avoid double-counting dropped shifts that still appear in Shifts Worked
+  const rawShiftDates = {}; // nameKey -> Set of "date|bucket" strings
   for (const s of rawShifts) {
     const isPrep  = (s.startH >= 6 && s.startH <= 9);
     const isClose = (s.startH >= 19 && s.startH <= 21);
-    
-    if(!isPrep && !isClose) continue;
+    if (!isPrep && !isClose) continue;
+    if (!rawShiftDates[s.nameKey]) rawShiftDates[s.nameKey] = new Set();
+    const bucket = isPrep ? 'prep' : 'close';
+    rawShiftDates[s.nameKey].add(s.date + '|' + bucket);
+  }
 
+  // ── Step 2: Process rawShifts (Shifts Worked) — existing logic ───────────
+  for (const s of rawShifts) {
+    const isPrep  = (s.startH >= 6 && s.startH <= 9);
+    const isClose = (s.startH >= 19 && s.startH <= 21);
+    if(!isPrep && !isClose) continue;
     if(!byEmpType[s.nameKey]) byEmpType[s.nameKey]={ name:s.name, prep:{}, close:{} };
     const bucket = isPrep ? 'prep' : 'close';
     if(!byEmpType[s.nameKey][bucket][s.dow]) byEmpType[s.nameKey][bucket][s.dow]=[];
-    
     byEmpType[s.nameKey][bucket][s.dow].push({
       date: s.date, rawDate: s.rawDate,
       hasClock: s.hasClock,
@@ -937,91 +978,220 @@ function buildPrepCloseData(rawShifts) {
       notes: s.notes,
       startH: s.startH,
       startM: s.startM,
+      fromDrop: false,
       startLabel: s.startH < 12 ? `${s.startH}:${String(s.startM).padStart(2,'0')}am` : `${s.startH === 12 ? 12 : s.startH - 12}:${String(s.startM).padStart(2,'0')}pm`
     });
   }
 
-  // FUZZY MATCH LOGIC
-  for (const empKey in byEmpType) {
-    const empTruePunches = rawShifts.filter(r => r.nameKey === empKey && r.hasClock === true);
-    
-    for (const bucket of ['prep', 'close']) {
-       for (const dow in byEmpType[empKey][bucket]) {
-          const shifts = byEmpType[empKey][bucket][dow];
-          
-          for (const shift of shifts) {
-             if (!shift.hasClock) {
-                const matched = empTruePunches.find(act => {
-                   if (act.date !== shift.date) return false;
-                   const schedMin = (shift.startH * 60) + shift.startM;
-                   const actMin = (act.startH * 60) + act.startM;
-                   return Math.abs(schedMin - actMin) <= 90; // 1.5 Hour Tolerance
-                });
-                
-                if (matched) {
-                   shift.hasClock = true;
-                   shift.notes = (shift.notes ? shift.notes + " " : "") + "(Resolved via fuzzy match)";
-                }
-             }
-          }
-          
-          const byDate = {};
-          for (const s of shifts) {
-             if (!byDate[s.date]) byDate[s.date] = [];
-             byDate[s.date].push(s);
-          }
-          const uniqueShifts = [];
-          for (const d in byDate) {
-             const dayShifts = byDate[d];
-             const clocked = dayShifts.find(x => x.hasClock);
-             if (clocked) uniqueShifts.push(clocked);
-             else uniqueShifts.push(dayShifts[0]);
-          }
-          
-          byEmpType[empKey][bucket][dow] = uniqueShifts.sort((a,b)=> {
-              if (a.rawDate && b.rawDate) return a.rawDate.d - b.rawDate.d;
-              return 0;
-          });
-       }
+  // ── Step 3: Scan Shift Requests for dropped/swapped prep & close shifts ───
+  // These are accepted/covered drops — WhenIWork removes them from Shifts Worked
+  // entirely, so they'd otherwise be invisible in P&C view.
+  // We also include uncovered drops for completeness (they appear in SW but
+  // the date-key check below prevents double-counting).
+  if (mergedShiftRequests && mergedShiftRequests.length) {
+    const dropTypes = new Set(['drop', 'swap']);
+    for (const row of mergedShiftRequests) {
+      const assignee = (row['Assignee'] || '').toString().trim();
+      const type = (row['Type'] || '').toString().trim().toLowerCase();
+      if (!assignee || !dropTypes.has(type)) continue;
+
+      const bucket = classifyRequestTime(row['Shift Start Time']);
+      if (!bucket) continue;
+
+      const nameKey = normName(assignee);
+      if (!nameKey) continue;
+
+      const dateStr = fmtDate(row['Shift Start Date']);
+      // Skip if this date already has a Shifts Worked entry for this person+bucket
+      // (uncovered drops remain in SW, so they're already counted)
+      if (rawShiftDates[nameKey] && rawShiftDates[nameKey].has(dateStr + '|' + bucket)) continue;
+
+      // Parse day-of-week from the shift start date
+      const dp = parseUniversal(row['Shift Start Date']);
+      const dow = dp ? dp.dow : null;
+      if (!dow) continue;
+
+      const startP = parseUniversal(row['Shift Start Time']);
+      const startH = startP ? startP.h : (bucket === 'prep' ? 7 : 20);
+      const startM = startP ? startP.m : 30;
+
+      // Ensure emp exists in byEmpType
+      if (!byEmpType[nameKey]) byEmpType[nameKey] = { name: assignee, prep:{}, close:{} };
+      if (!byEmpType[nameKey][bucket][dow]) byEmpType[nameKey][bucket][dow] = [];
+
+      byEmpType[nameKey][bucket][dow].push({
+        date: dateStr,
+        rawDate: dp,
+        hasClock: false,   // dropped = not worked
+        site: row['Job Site'] || '',
+        notes: `Dropped (${row['Status'] || 'unknown status'})`,
+        startH,
+        startM,
+        fromDrop: true,
+        startLabel: startH < 12
+          ? `${startH}:${String(startM).padStart(2,'0')}am`
+          : `${startH === 12 ? 12 : startH - 12}:${String(startM).padStart(2,'0')}pm`
+      });
+
+      // Also register this date so we don't add it twice if it appears in both periods
+      if (!rawShiftDates[nameKey]) rawShiftDates[nameKey] = new Set();
+      rawShiftDates[nameKey].add(dateStr + '|' + bucket);
     }
   }
 
-  const empRows = [];
-  for (const [key, data] of Object.entries(byEmpType)) {
-    const summarize = (dowMap) => {
-      const commitments = [];
-      let totalAll=0, workedAll=0;
-      for (const dow of DAYS) {
-        if(!dowMap[dow]) continue;
-        const shifts=dowMap[dow];
-        const total=shifts.length;
-        const worked=shifts.filter(s=>s.hasClock).length;
-        const pct=total>0?Math.round((worked/total)*100):0;
-        const recurring=total>=2;
-        let status='once';
-        if(recurring) { status=pct>=80?'met':pct>=50?'partial':'missed'; }
-        commitments.push({dow, total, worked, pct, recurring, status, shifts});
-        totalAll+=total; workedAll+=worked;
+  // ── Step 4: Fuzzy match & deduplication (existing logic, unchanged) ───────
+  for (const empKey in byEmpType) {
+    const empTruePunches = rawShifts.filter(r => r.nameKey === empKey && r.hasClock === true);
+    for (const bucket of ['prep', 'close']) {
+      for (const dow in byEmpType[empKey][bucket]) {
+        const shifts = byEmpType[empKey][bucket][dow];
+        for (const shift of shifts) {
+          if (!shift.hasClock) {
+            const matched = empTruePunches.find(act => {
+              if (act.date !== shift.date) return false;
+              const schedMin = (shift.startH * 60) + shift.startM;
+              const actMin = (act.startH * 60) + act.startM;
+              return Math.abs(schedMin - actMin) <= 90;
+            });
+            if (matched) {
+              shift.hasClock = true;
+              shift.notes = (shift.notes ? shift.notes + ' ' : '') + '(Resolved via fuzzy match)';
+            }
+          }
+        }
+        // Deduplicate by date — prefer clocked entry
+        const byDate = {};
+        for (const s of shifts) {
+          if (!byDate[s.date]) byDate[s.date] = [];
+          byDate[s.date].push(s);
+        }
+        const uniqueShifts = [];
+        for (const d in byDate) {
+          const dayShifts = byDate[d];
+          const clocked = dayShifts.find(x => x.hasClock);
+          uniqueShifts.push(clocked || dayShifts[0]);
+        }
+        byEmpType[empKey][bucket][dow] = uniqueShifts.sort((a, b) => {
+          if (a.rawDate && b.rawDate) return a.rawDate.d - b.rawDate.d;
+          return 0;
+        });
       }
-      const overallPct=totalAll>0?Math.round((workedAll/totalAll)*100):null;
-      return {commitments, totalAll, workedAll, overallPct};
-    };
-
-    const prep  = summarize(data.prep);
-    const close = summarize(data.close);
-    const hasPrep  = prep.totalAll>0;
-    const hasClose = close.totalAll>0;
-    if(!hasPrep&&!hasClose) continue;
-
-    const allStatuses=[...prep.commitments,...close.commitments].filter(c=>c.recurring).map(c=>c.status);
-    let overallStatus='ok';
-    if(allStatuses.includes('missed')) overallStatus='missed';
-    else if(allStatuses.includes('partial')) overallStatus='partial';
-
-    empRows.push({ key, name:data.name, prep, close, hasPrep, hasClose, overallStatus });
+    }
   }
 
-  empRows.sort((a,b)=>a.name.localeCompare(b.name));
+  // ── Step 5: Compute per-DOW available counts from the date range ─────────
+  // Instead of a single totalWeeks threshold, count how many of each day-of-week
+  // actually exist in the active date range. This avoids off-by-one errors from
+  // rounding and handles ranges that don't start/end on clean week boundaries.
+  // Threshold: a day is recurring if occurrences >= 50% of available slots for that DOW.
+  const dowAvailable = {}; // e.g. { Monday: 7, Tuesday: 8, ... }
+  {
+    const { fromMs, toMs } = getDateFilterMs();
+    // Use rawShifts date range as fallback bounds
+    let rangeFrom = fromMs, rangeTo = toMs;
+    if (!rangeFrom || !rangeTo) {
+      let minMs = Infinity, maxMs = -Infinity;
+      for (const s of rawShifts) {
+        const ms = shiftDateToMs(s.dateVal);
+        if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
+      }
+      if (isFinite(minMs)) { rangeFrom = minMs; rangeTo = maxMs; }
+    }
+    if (rangeFrom && rangeTo) {
+      // Walk every day in the range and count each DOW
+      let cur = new Date(rangeFrom);
+      cur.setUTCHours(0, 0, 0, 0);
+      const end = new Date(rangeTo);
+      end.setUTCHours(23, 59, 59, 999);
+      while (cur <= end) {
+        const dow = DAYS[cur.getUTCDay()];
+        dowAvailable[dow] = (dowAvailable[dow] || 0) + 1;
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+    }
+  }
+
+  // ── Step 5b: Summarize into empRows ──────────────────────────────────────
+  const summarize = (dowMap) => {
+    const commitments = [];
+    let totalAll = 0, workedAll = 0;
+    for (const dow of DAYS) {
+      if (!dowMap[dow]) continue;
+      const shifts    = dowMap[dow];
+      const total     = shifts.length;
+      const worked    = shifts.filter(s => s.hasClock).length;
+
+      // Recurring = occurrences >= 33% of available slots for this specific DOW
+      const available = dowAvailable[dow] || (totalWeeks || 4);
+      const recurring = total >= available * 0.33;
+
+      // pct for display = worked out of shifts we have records for (within total)
+      const pctDisplay = total > 0 ? Math.round((worked / total) * 100) : 0;
+
+      // pct for credit = worked out of ALL available slots in the period
+      // This is the true attendance rate — e.g. 2 worked out of 7 possible Mondays = 29%
+      const pctCredit = Math.round((worked / available) * 100);
+
+      // Status and credits use pctCredit so a sparse record can't earn full credit
+      let status = 'once';
+      if (recurring) { status = pctCredit >= 80 ? 'met' : pctCredit >= 50 ? 'partial' : 'missed'; }
+
+      commitments.push({ dow, total, worked, available, pct: pctDisplay, pctCredit, recurring, status, shifts });
+
+      // Overall P&C % also uses available-based math for consistency
+      if (recurring) { totalAll += available; workedAll += worked; }
+    }
+    const overallPct = totalAll > 0 ? Math.round((workedAll / totalAll) * 100) : null;
+    return { commitments, totalAll, workedAll, overallPct };
+  };
+
+  // Build a map of nameKey -> empRow for employees with P&C data
+  const pcMap = {};
+  for (const [key, data] of Object.entries(byEmpType)) {
+    const prep  = summarize(data.prep);
+    const close = summarize(data.close);
+
+    // hasPrep/hasClose = has ANY shift data for that bucket (worked, no-clock-in, or dropped)
+    // Use commitments.length, NOT totalAll (which only counts recurring days)
+    const hasPrep  = prep.commitments.length  > 0;
+    const hasClose = close.commitments.length > 0;
+
+    const allStatuses = [...prep.commitments, ...close.commitments]
+      .filter(c => c.recurring).map(c => c.status);
+    let overallStatus = 'ok';
+    if (allStatuses.includes('missed'))       overallStatus = 'missed';
+    else if (allStatuses.includes('partial')) overallStatus = 'partial';
+
+    pcMap[key] = { key, name: data.name, prep, close, hasPrep, hasClose, overallStatus };
+  }
+
+  // ── Step 6: Merge ALL employees from attendance results ───────────────────
+  // Everyone appears in the P&C tab; those with no P&C shifts get N/A
+  const empRows = [];
+  const emptyCommitments = { commitments: [], totalAll: 0, workedAll: 0, overallPct: null };
+
+  if (allResults && allResults.length) {
+    for (const r of allResults) {
+      const key = normName(r.name);
+      if (pcMap[key]) {
+        empRows.push(pcMap[key]);
+      } else {
+        // Employee exists in attendance but has no P&C shifts at all
+        empRows.push({
+          key, name: r.name,
+          prep:  emptyCommitments,
+          close: emptyCommitments,
+          hasPrep: false, hasClose: false,
+          overallStatus: 'none'
+        });
+      }
+    }
+  } else {
+    // Fallback: only P&C employees (old behaviour)
+    empRows.push(...Object.values(pcMap));
+  }
+
+  empRows.sort((a, b) => a.name.localeCompare(b.name));
   return empRows;
 }
 
@@ -1386,22 +1556,21 @@ function renderPrepClose() {
     return;
   }
 
-  const allEmps = [...new Map(data.filter(e=>e.hasPrep||e.hasClose).map(e=>[e.key,e])).values()]
-    .sort((a,b) => a.name.localeCompare(b.name));
-
-  const prepEmps   = data.filter(e=>e.hasPrep);
-  const closeEmps  = data.filter(e=>e.hasClose);
-  const prepIssues  = prepEmps.filter(e=>e.prep.commitments.some(c=>c.recurring&&c.pct<50)).length;
-  const closeIssues = closeEmps.filter(e=>e.close.commitments.some(c=>c.recurring&&c.pct<50)).length;
+  // All employees are now included; split for stat cards
+  // hasPrep/hasClose now means "has any P&C commitment data" — use for counts
+  const prepEmps   = data.filter(e => e.hasPrep);
+  const closeEmps  = data.filter(e => e.hasClose);
+  const prepIssues  = prepEmps.filter(e => e.prep.commitments.some(c => c.recurring && c.pct < 50)).length;
+  const closeIssues = closeEmps.filter(e => e.close.commitments.some(c => c.recurring && c.pct < 50)).length;
 
   // Filter
-  const q = (state.pc.filterText||'').toLowerCase();
+  const q = (state.pc.filterText || '').toLowerCase();
   const showIssues = state.pc.showIssuesOnly.prep || state.pc.showIssuesOnly.close;
-  let rows = allEmps;
+  let rows = [...data];
   if (q) rows = rows.filter(e => e.name.toLowerCase().includes(q));
   if (showIssues) rows = rows.filter(e =>
-    (e.hasPrep  && e.prep.commitments.some(c=>c.recurring&&c.pct<50)) ||
-    (e.hasClose && e.close.commitments.some(c=>c.recurring&&c.pct<50))
+    (e.hasPrep  && e.prep.commitments.some(c => c.recurring && c.pct < 50)) ||
+    (e.hasClose && e.close.commitments.some(c => c.recurring && c.pct < 50))
   );
 
   const tableRows = rows.map(e => buildPcUnifiedRow(e)).join('');
@@ -1448,19 +1617,33 @@ function renderPrepClose() {
 }
 
 function creditSummary(empData) {
-  if (!empData || empData.totalAll === 0) return { pct: null, credits: 0, total: 0, concerns: [] };
+  if (!empData || empData.commitments.length === 0) return { pct: null, credits: 0, total: 0, concerns: [], hasAnyData: false };
   const recurring = empData.commitments.filter(c => c.recurring);
-  const credits   = recurring.filter(c => c.pct >= 50).length;
-  const concerns  = recurring.filter(c => c.pct < 50).map(c => c.dow);
-  return { pct: empData.overallPct, credits, total: recurring.length, concerns };
+  const credits   = recurring.filter(c => c.pctCredit >= 50).length;
+  const concerns  = recurring.filter(c => c.pctCredit < 50).map(c => c.dow);
+  // Overall pct from empData (already available-based from summarize)
+  const pct = empData.overallPct !== null
+    ? empData.overallPct
+    : (() => {
+        const allAvail  = empData.commitments.reduce((s, c) => s + (c.available || c.total), 0);
+        const allWorked = empData.commitments.reduce((s, c) => s + c.worked, 0);
+        return allAvail > 0 ? Math.round((allWorked / allAvail) * 100) : 0;
+      })();
+  return { pct, credits, total: recurring.length, concerns, hasAnyData: true };
 }
 
 function creditCell(cr, hasSide) {
-  if (!hasSide) return '<td class="num zero">—</td><td class="num zero">—</td>';
-  if (cr.total === 0) return '<td class="num" style="color:#aaa;font-style:italic">N/A</td><td class="num" style="color:#aaa;font-style:italic">N/A</td>';
-  const pctHtml = '<span class="' + (cr.pct>=80?'c-ok':cr.pct>=50?'c-warn':'c-red') + '" style="font-weight:700">' + cr.pct + '%</span>';
-  const creditHtml = '<span style="font-weight:700;color:' + (cr.credits===cr.total?'#166534':cr.credits>0?'#92400e':'#b91c1c') + '">' + cr.credits + '/' + cr.total + '</span>'
-    + (cr.concerns.length ? '<span style="color:#b91c1c;font-size:10px;margin-left:6px">⚠ ' + cr.concerns.join(', ') + '</span>' : '');
+  // hasSide=false: employee has absolutely no P&C shifts (not even drops)
+  if (!hasSide) return '<td class="num zero" style="color:#d1d5db">—</td><td class="num zero" style="color:#d1d5db">—</td>';
+  // Has shifts but creditSummary found no data (shouldn't happen, but guard)
+  if (!cr.hasAnyData) return '<td class="num" style="color:#aaa;font-style:italic">N/A</td><td class="num" style="color:#aaa;font-style:italic">N/A</td>';
+  // Has data — show real attendance % and credits (even if 0/0 recurring commitments)
+  const pctHtml = '<span class="' + (cr.pct >= 80 ? 'c-ok' : cr.pct >= 50 ? 'c-warn' : 'c-red') + '" style="font-weight:700">' + cr.pct + '%</span>';
+  // If no recurring commitments, credit cell shows "—" credits with a note
+  const creditHtml = cr.total === 0
+    ? '<span style="color:#aaa;font-size:11px;font-style:italic">no recurring</span>'
+    : '<span style="font-weight:700;color:' + (cr.credits === cr.total ? '#166534' : cr.credits > 0 ? '#92400e' : '#b91c1c') + '">' + cr.credits + '/' + cr.total + '</span>'
+      + (cr.concerns.length ? '<span style="color:#b91c1c;font-size:10px;margin-left:6px">⚠ ' + cr.concerns.join(', ') + '</span>' : '');
   return '<td class="num">' + pctHtml + '</td><td style="padding:8px 14px;font-size:12px">' + creditHtml + '</td>';
 }
 
@@ -1487,25 +1670,36 @@ function buildPcUnifiedRow(e) {
 }
 
 function buildPcUnifiedDetail(e) {
+  // Employee with no P&C shifts at all
+  if (!e.hasPrep && !e.hasClose) {
+    return '<div class="detail-panel" style="margin-left:300px;color:#9ca3af;font-size:12px;font-style:italic;padding:8px 0">'
+      + 'No prep or closing shifts assigned during this period.'
+      + '</div>';
+  }
+
   function sectionHtml(label, colorCls, empData) {
-    if (!empData || empData.totalAll === 0) return '';
+    // Guard: must have at least one commitment entry (recurring or not)
+    if (!empData || !empData.commitments || empData.commitments.length === 0) return '';
     const rows = empData.commitments.map(c => {
-      const pctCls = !c.recurring ? '' : c.pct>=80 ? 'c-ok' : c.pct>=50 ? 'c-warn' : 'c-red';
+      const pctCls = !c.recurring ? '' : c.pctCredit>=80 ? 'c-ok' : c.pctCredit>=50 ? 'c-warn' : 'c-red';
       const statLabel = c.recurring
-        ? '<span class="' + pctCls + '" style="font-weight:700;font-size:11px">' + c.pct + '%</span>'
-          + '<span style="color:#aaa;font-size:10px;margin-left:3px">' + c.worked + '/' + c.total + '</span>'
-        : '<span style="color:#aaa;font-size:10px">one-time</span>';
-      // Each shift: compact single line
+        ? '<span class="' + pctCls + '" style="font-weight:700;font-size:11px">' + c.pctCredit + '%</span>'
+          + '<span style="color:#aaa;font-size:10px;margin-left:3px">' + c.worked + '/' + c.available + '</span>'
+          + (c.total < c.available ? '<span style="color:#d1d5db;font-size:9px;margin-left:3px">(' + c.total + ' records)</span>' : '')
+        : '<span style="color:#aaa;font-size:10px">not recurring</span>'
+          + '<span style="color:#ccc;font-size:9px;margin-left:4px">(' + c.total + '/' + (c.available || '?') + ' wks)</span>';
       const shiftLines = c.shifts.map(s => {
-        const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock?'#16a34a':'#dc2626') + ';margin-right:4px;vertical-align:middle"></span>';
-        const nc  = !s.hasClock ? '<span style="color:#dc2626;font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
+        const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock ? '#16a34a' : '#dc2626') + ';margin-right:4px;vertical-align:middle"></span>';
+        const nc   = !s.hasClock && !s.fromDrop ? '<span style="color:#dc2626;font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
+        const drop = s.fromDrop && !s.hasClock   ? '<span style="color:#b91c1c;font-size:9px;font-weight:700;margin-left:3px;background:#fee2e2;padding:1px 4px;border-radius:2px">DROPPED</span>' : '';
         return '<div style="line-height:1.6;white-space:nowrap">' + dot
           + '<span style="color:#374151;font-size:11px">' + esc(s.date) + '</span>'
-          + nc + '</div>';
+          + nc + drop + '</div>';
       }).join('');
-      const dowLabel = '<span style="font-weight:700;font-size:11px;color:#111">' + c.dow.slice(0,3)
-        + (c.recurring ? '' : '<span style="font-weight:400;color:#bbb;font-size:9px"> 1×</span>') + '</span>';
-      return '<tr style="vertical-align:top;border-bottom:1px solid #f4f4f4">'
+      // Dim the dow label for non-recurring days
+      const dowColor = c.recurring ? '#111' : '#bbb';
+      const dowLabel = '<span style="font-weight:700;font-size:11px;color:' + dowColor + '">' + c.dow.slice(0,3) + '</span>';
+      return '<tr style="vertical-align:top;border-bottom:1px solid #f4f4f4;opacity:' + (c.recurring ? '1' : '0.6') + '">'
         + '<td style="padding:3px 8px 3px 0;white-space:nowrap">' + dowLabel + '</td>'
         + '<td style="padding:3px 8px;white-space:nowrap">' + statLabel + '</td>'
         + '<td style="padding:3px 0">' + shiftLines + '</td>'
@@ -1520,6 +1714,12 @@ function buildPcUnifiedDetail(e) {
   const prepHtml  = sectionHtml('Morning Prep', '#7c3aed', e.hasPrep  ? e.prep  : null);
   const closeHtml = sectionHtml('Closing',      '#0369a1', e.hasClose ? e.close : null);
   const cols = (prepHtml ? 1 : 0) + (closeHtml ? 1 : 0);
+  if (cols === 0) {
+    // Has P&C flag set (from drops) but all days are non-recurring — show a note
+    return '<div class="detail-panel" style="margin-left:300px;color:#9ca3af;font-size:12px;font-style:italic;padding:8px 0">'
+      + 'Shifts present but no recurring commitments identified for this period.'
+      + '</div>';
+  }
   return '<div class="detail-panel" style="display:grid;grid-template-columns:repeat(' + cols + ',auto);gap:24px;width:fit-content;margin-left:300px">'
     + prepHtml + closeHtml + '</div>';
 }
