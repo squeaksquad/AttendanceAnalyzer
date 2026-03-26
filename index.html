@@ -308,8 +308,13 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <div class="zone-status" id="status-timesheets2"></div>
     </div>
 
-
-
+    <div class="sidebar-label" style="margin-top:12px">Worker Portal</div>
+    <div class="upload-zone" id="zone-users" ondragover="dragOver(event,'zone-users')" ondragleave="dragLeave('zone-users')" ondrop="dropFile(event,'users')">
+      <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'users')">
+      <div class="zone-title">👥 Users Report</div>
+      <div class="zone-sub">Emails &amp; roles from WhenIWork</div>
+      <div class="zone-status" id="status-users"></div>
+    </div>
 
     <div class="sidebar-label" style="margin-top:12px">Date Range Filter</div>
     <div class="date-filter-row">
@@ -350,6 +355,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
         <div id="worker-dropdown-list" style="max-height:180px;overflow-y:auto"></div>
       </div>
     </div>
+    <button class="export-btn" id="github-push-btn" onclick="openGitHubPushModal()" disabled style="margin-top:4px;background:#f0fdf4;border-color:#86efac;color:#166534;font-size:11px">&#128640; Push to GitHub (Worker Portal)</button>
     <details style="margin-top:8px">
       <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> Timezone &amp; Advanced
@@ -437,6 +443,7 @@ function detectFileType(filename) {
   if (n.startsWith('absences'))                      return 'absences';
   if (n.startsWith('shifts_worked') || n.startsWith('shifts worked')) return 'clockin';
   if (n.startsWith('shift_requests') || n.startsWith('shift requests')) return 'shifts';
+  if (n.startsWith('users'))                          return 'users';
   // Looser fallbacks
   if (n.includes('absence'))                          return 'absences';
   if (n.includes('worked'))                           return 'clockin';
@@ -517,11 +524,10 @@ function processFile(file, type) {
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
-      // Timesheets need cellDates:true so Date objects come through; others use raw serials
       const baseType = type.replace(/2$/, '');
       const isTimesheets = baseType === 'timesheets';
+      const isUsers      = baseType === 'users';
       const wb = XLSX.read(e.target.result, {type:'array', raw: !isTimesheets, cellDates: isTimesheets});
-      // For timesheets: try 'Entries' first, then fall back to any sheet with data
       let sheetName = wb.SheetNames[0];
       if (isTimesheets) {
         const preferred = ['Entries', ...wb.SheetNames];
@@ -535,12 +541,46 @@ function processFile(file, type) {
       }
       const ws = wb.Sheets[sheetName];
       const data = XLSX.utils.sheet_to_json(ws, {defval:null});
-      state[type] = data;
+
+      if (isUsers) {
+        // Parse Users report into a nameKey→{email, role} map
+        // Columns: First Name, Last Name, Email, ..., Positions
+        const userMap = {}; // nameKey → { email, role }
+        const emailMap = {}; // nameKey → email (for push modal pre-fill)
+        for (const row of data) {
+          const fn = (row['First Name'] || '').toString().trim();
+          const ln = (row['Last Name']  || '').toString().trim();
+          const email = (row['Email'] || '').toString().trim().toLowerCase();
+          const position = (row['Positions'] || row['Position'] || '').toString().trim();
+          if (!fn && !ln) continue;
+          const fullName = (fn + ' ' + ln).trim();
+          const key = normName(fullName);
+          // Determine portal role
+          let role = 'assistant';
+          if (position.includes('Manager')) role = 'manager';
+          else if (position.includes('Consultant')) role = 'manager'; // both see full view
+          userMap[key] = { email, role, name: fullName };
+          if (email) emailMap[key] = email;
+        }
+        state.users    = data;  // raw rows
+        state.userMap  = userMap;  // parsed lookup
+        state.emailMap = emailMap; // pre-fill for push modal
+        // Update push modal email inputs if they're already rendered
+        renderUserEmailsIfOpen();
+      } else {
+        state[type] = data;
+      }
+
       document.getElementById('zone-'+type).classList.add('loaded');
       document.getElementById('zone-'+type).classList.remove('drag-over','error');
       const st = document.getElementById('status-'+type);
       st.className = 'zone-status ok';
-      st.textContent = `✓ ${data.length} rows loaded`;
+      if (isUsers) {
+        const n = Object.keys(state.userMap || {}).length;
+        st.textContent = `✓ ${n} employees loaded`;
+      } else {
+        st.textContent = `✓ ${data.length} rows loaded`;
+      }
       checkReady();
     } catch(err) {
       document.getElementById('zone-'+type).classList.add('error');
@@ -550,6 +590,20 @@ function processFile(file, type) {
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function renderUserEmailsIfOpen() {
+  // If the push modal is open, refresh its email inputs from the newly loaded userMap
+  const modal = document.getElementById('github-push-modal');
+  if (!modal || modal.style.display === 'none') return;
+  const container = document.getElementById('gh-email-rows');
+  if (!container) return;
+  container.querySelectorAll('input[data-key]').forEach(inp => {
+    const key = inp.dataset.key;
+    if (state.emailMap && state.emailMap[key]) {
+      inp.value = state.emailMap[key];
+    }
+  });
 }
 
 function checkReady() {
@@ -854,6 +908,7 @@ function _analyzeInner() {
     document.getElementById('correct-btn').disabled = false;
     document.getElementById('worker-pdf-btn').disabled = false;
     document.getElementById('bulk-pdf-btn').disabled = false;
+    document.getElementById('github-push-btn').disabled = false;
     populateWorkerDropdown();
   } catch(err) {
     document.getElementById('main').insertAdjacentHTML('afterbegin',`<div class="error-box">⚠ ${err.message}</div>`);
@@ -2910,6 +2965,7 @@ function exportSnapshot() {
     document.getElementById('correct-btn').disabled = false;
     document.getElementById('worker-pdf-btn').disabled = false;
     document.getElementById('bulk-pdf-btn').disabled = false;
+    document.getElementById('github-push-btn').disabled = false;
     populateWorkerDropdown();
     // Update date filter label then analyze
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
@@ -3006,6 +3062,386 @@ function exportReport() {
 
   XLSX.writeFile(wb, `attendance_report_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
+
+// ── GitHub Push — Worker Portal ───────────────────────────────────────────────
+const GITHUB_TOKEN_KEY = 'studio_github_token';
+const WORKER_EMAILS_KEY = 'studio_worker_emails';
+
+function openGitHubPushModal() {
+  if (!state.results || !state.results.length) return;
+  const modal = document.getElementById('github-push-modal');
+  if (!modal) return;
+
+  // Load saved token
+  const savedToken = localStorage.getItem(GITHUB_TOKEN_KEY) || '';
+  document.getElementById('gh-token-input').value = savedToken;
+
+  // Build email map: priority = Users report → localStorage → guessed
+  let savedEmailMap = {};
+  try { savedEmailMap = JSON.parse(localStorage.getItem(WORKER_EMAILS_KEY) || '{}'); } catch(e) {}
+
+  const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
+  const container = document.getElementById('gh-email-rows');
+  container.innerHTML = sorted.map(r => {
+    const key = normName(r.name);
+    // Priority: Users report > localStorage > guess
+    const fromUsers = state.emailMap && state.emailMap[key];
+    const fromSaved = savedEmailMap[key];
+    const email = fromUsers || fromSaved || guessEmail(r.name);
+    const role = state.userMap && state.userMap[key] ? state.userMap[key].role : 'assistant';
+    const roleBadge = role === 'manager'
+      ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:#dbeafe;color:#1d4ed8;margin-left:4px">MGR</span>'
+      : '';
+    return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+      <span style="font-size:11px;font-weight:600;color:#374151;min-width:130px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.name)}">${esc(r.name)}${roleBadge}</span>
+      <input type="email" data-key="${esc(key)}" data-role="${role}" value="${esc(email)}"
+        placeholder="email@berklee.edu"
+        style="flex:1;border:1px solid #d1d5db;border-radius:4px;padding:4px 7px;font-size:11px;color:#374151;min-width:0">
+    </div>`;
+  }).join('');
+
+  modal.style.display = 'flex';
+  document.getElementById('gh-push-status').textContent = '';
+  document.getElementById('gh-push-btn').disabled = false;
+  document.getElementById('gh-push-btn').textContent = '🚀 Push All Worker Files';
+}
+
+function guessEmail(name) {
+  // Convert "First Last" to "flast@berklee.edu" as a starting guess
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return '';
+  const first = parts[0].toLowerCase().replace(/[^a-z]/g, '');
+  const last  = parts[parts.length - 1].toLowerCase().replace(/[^a-z]/g, '');
+  return `${first[0]}${last}@berklee.edu`;
+}
+
+function closeGitHubPushModal() {
+  const modal = document.getElementById('github-push-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function executePushToGitHub() {
+  const token = document.getElementById('gh-token-input').value.trim();
+  if (!token) { alert('Please enter your GitHub Personal Access Token.'); return; }
+  localStorage.setItem(GITHUB_TOKEN_KEY, token);
+
+  // Collect email map and roles
+  const emailMap = {};
+  const roleMap  = {};
+  document.querySelectorAll('#gh-email-rows input[data-key]').forEach(inp => {
+    const key   = inp.dataset.key;
+    const email = inp.value.trim().toLowerCase();
+    const role  = inp.dataset.role || 'assistant';
+    if (key && email) { emailMap[key] = email; roleMap[email] = role; }
+  });
+  localStorage.setItem(WORKER_EMAILS_KEY, JSON.stringify(emailMap));
+
+  const statusEl = document.getElementById('gh-push-status');
+  const btn = document.getElementById('gh-push-btn');
+  btn.disabled = true;
+
+  const owner = 'squeaksquad';
+  const repo  = 'studio-worker-data';
+
+  // Determine period tag from date range
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const fromTag = fromEl?.value ? fromEl.value.replace(/-/g,'') : '';
+  const toTag   = toEl?.value   ? toEl.value.replace(/-/g,'')   : '';
+  const periodTag = fromTag && toTag ? `${fromTag}-${toTag}` : new Date().toISOString().slice(0,10).replace(/-/g,'');
+
+  const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
+  const rosterWorkers = {};
+  let done = 0, failed = 0;
+
+  // Fetch current roster to preserve whitelist
+  let existingRoster = { whitelist: [], workers: {} };
+  try {
+    const rosterRes = await githubGet(token, owner, repo, 'roster.json');
+    if (rosterRes.ok) {
+      const rosterData = await rosterRes.json();
+      const content = JSON.parse(atob(rosterData.content.replace(/\n/g,'')));
+      existingRoster = content;
+    }
+  } catch(e) {}
+
+  for (const r of sorted) {
+    const key = normName(r.name);
+    const email = emailMap[key];
+    if (!email) { failed++; continue; }
+
+    const safeName = r.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
+    const filename = `${safeName}_${periodTag}.html`;
+    rosterWorkers[email] = { file: filename, role: roleMap[email] || 'assistant' };
+
+    statusEl.textContent = `Uploading ${++done}/${sorted.length}: ${r.name}…`;
+
+    try {
+      // Generate worker snapshot HTML
+      const html = generateWorkerSnapshot(normName(r.name), r, periodTag);
+      const encoded = btoa(unescape(encodeURIComponent(html)));
+
+      // Check if file exists (to get its SHA for update)
+      const existingRes = await githubGet(token, owner, repo, `workers/${filename}`);
+      const sha = existingRes.ok ? (await existingRes.json()).sha : undefined;
+
+      // Upload file
+      const uploadRes = await githubPut(token, owner, repo, `workers/${filename}`, {
+        message: `Update ${r.name} attendance data (${periodTag})`,
+        content: encoded,
+        ...(sha ? { sha } : {})
+      });
+
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json();
+        console.warn(`Failed to upload ${filename}:`, err.message);
+        failed++;
+      }
+    } catch(e) {
+      console.warn(`Error uploading for ${r.name}:`, e);
+      failed++;
+    }
+    // Small delay to avoid GitHub rate limiting
+    await new Promise(res => setTimeout(res, 100));
+  }
+
+  // Also add managers/consultants from Users report who aren't in attendance data
+  // (they don't work shifts so won't be in state.results, but need portal access)
+  if (state.userMap) {
+    for (const [key, userData] of Object.entries(state.userMap)) {
+      if (userData.role !== 'manager') continue;
+      const email = userData.email;
+      if (!email || rosterWorkers[email]) continue; // skip if already added via attendance
+      // Managers get a placeholder entry — no snapshot file, just dashboard access
+      const safeName = userData.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
+      const filename = `${safeName}_${periodTag}.html`;
+      rosterWorkers[email] = { file: filename, role: 'manager' };
+    }
+  }
+
+  // Update roster.json
+  // Auto-revoke: build roster exclusively from current Users report + attendance data.
+  // Anyone not in rosterWorkers is removed — preserving only the manual whitelist.
+  statusEl.textContent = 'Updating roster.json…';
+  try {
+    const newRoster = {
+      _comment: 'Managed by the Attendance Analyzer. Auto-revoke: rebuilt from current Users report each push.',
+      whitelist: existingRoster.whitelist || [], // manual whitelist entries are always preserved
+      workers: rosterWorkers  // fresh — only current staff
+    };
+    const rosterContent = btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n')));
+    const existingRosterRes = await githubGet(token, owner, repo, 'roster.json');
+    const rosterSha = existingRosterRes.ok ? (await existingRosterRes.json()).sha : undefined;
+    await githubPut(token, owner, repo, 'roster.json', {
+      message: `Update roster for period ${periodTag}`,
+      content: rosterContent,
+      ...(rosterSha ? { sha: rosterSha } : {})
+    });
+  } catch(e) {
+    console.warn('Failed to update roster.json:', e);
+  }
+
+  const summary = failed > 0
+    ? `Done! ${done - failed} uploaded, ${failed} skipped (missing email). Roster updated.`
+    : `Done! All ${done} worker files uploaded and roster updated. ✓`;
+  statusEl.textContent = summary;
+  btn.disabled = false;
+  btn.textContent = '✓ Push again';
+}
+
+function githubGet(token, owner, repo, path) {
+  return fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+    headers: {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'AttendanceAnalyzer/1.0'
+    }
+  });
+}
+
+function githubPut(token, owner, repo, path, body) {
+  return fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'AttendanceAnalyzer/1.0'
+    },
+    body: JSON.stringify(body)
+  });
+}
+
+function generateWorkerSnapshot(nameKey, result, periodTag) {
+  // Generate a minimal, clean worker-facing HTML snapshot
+  // Shows: summary stats, shift history, absences, shift requests, P&C
+  const detail = state.detailMap[nameKey] || { absences: [], shifts: [], clockin: [] };
+  const pcData = state.prepCloseData ? state.prepCloseData.find(e => e.key === nameKey) : null;
+
+  const pct = result.pct !== null ? result.pct + '%' : 'N/A';
+  const risk = result.pct !== null && result.pct < 80;
+  const pctColor = risk ? '#dc2626' : result.pct >= 90 ? '#16a34a' : '#d97706';
+
+  const MONTHS_IDX = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  function shiftSortKeyLocal(s) {
+    const dm = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!dm) return 0;
+    const base = Date.UTC(+dm[3], MONTHS_IDX[dm[1]]||0, +dm[2]);
+    const t = s.time ? s.time.split('–')[0].trim() : '';
+    const tm = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    let hm = 0;
+    if (tm) {
+      let h = parseInt(tm[1]), m = tm[2]?parseInt(tm[2]):0;
+      if (tm[3].toLowerCase()==='pm'&&h<12) h+=12;
+      if (tm[3].toLowerCase()==='am'&&h===12) h=0;
+      hm = (h*60+m)*60000;
+    }
+    return base + hm;
+  }
+
+  const clockinSorted = [...detail.clockin].sort((a,b) => shiftSortKeyLocal(a)-shiftSortKeyLocal(b));
+
+  const shiftRows = clockinSorted.map(s => {
+    const isManual = state.overrides.has(`${nameKey}|${s.date}|${s.time}`);
+    const isAuto   = state.autocorrections && state.autocorrections.has(`${nameKey}|${s.date}|${s.time}`);
+    let statusTxt, statusColor, statusBg;
+    if (s.hasClock && isManual)    { statusTxt='Manually Marked'; statusColor='#6d28d9'; statusBg='#ede9fe'; }
+    else if (s.hasClock && isAuto) { statusTxt='Auto-Corrected';  statusColor='#1d4ed8'; statusBg='#dbeafe'; }
+    else if (s.hasClock)           { statusTxt='Clocked In';      statusColor='#15803d'; statusBg='#dcfce7'; }
+    else                           { statusTxt='No Clock-In';     statusColor='#92400e'; statusBg='#fef3c7'; }
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap">${esc(s.date)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;color:#6b7280">${esc(s.time)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6">
+        <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${statusBg};color:${statusColor}">${statusTxt}</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const absRows = detail.absences.length === 0
+    ? '<p style="color:#aaa;font-style:italic;font-size:13px">No absences recorded.</p>'
+    : detail.absences.map(a => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;margin-bottom:8px">
+        <div style="font-weight:600;margin-bottom:4px">${esc(a.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${a.isSelf?'#f3f4f6':'#fef3c7'};color:${a.isSelf?'#374151':'#92400e'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span></div>
+        <div style="color:#6b7280;font-size:12px">${esc(a.time)}</div>
+        ${a.note ? `<div style="font-style:italic;color:#555;font-size:12px;margin-top:4px">${esc(a.note)}</div>` : ''}
+      </div>`).join('');
+
+  const reqRows = detail.shifts.length === 0
+    ? '<p style="color:#aaa;font-style:italic;font-size:13px">No shift requests.</p>'
+    : detail.shifts.map(s => {
+        const [bg,color,label] = s.type==='pickup'?['#dcfce7','#15803d','Covered for Others']:s.type==='swap'?['#e0e7ff','#3730a3','Swap']:['#fee2e2','#b91c1c','Drop'];
+        return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;margin-bottom:8px">
+          <div style="font-weight:600;margin-bottom:4px">${esc(s.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${bg};color:${color}">${label}</span> <span style="color:#9ca3af;font-size:11px">${esc(s.status)}</span></div>
+          <div style="color:#6b7280;font-size:12px">${esc(s.time)}</div>
+          ${s.acceptedBy?`<div style="font-size:12px;color:#555;margin-top:3px">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
+          ${s.coveredFor?`<div style="font-size:12px;color:#555;margin-top:3px">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
+        </div>`;
+      }).join('');
+
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const dateRange = (fromEl?.value && toEl?.value) ? `${fromEl.value} to ${toEl.value}` : periodTag;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(result.name)} — Attendance</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px;
+         background: #f0f0ee; color: #1a1a1a; min-height: 100vh; }
+  .header { background: ${risk?'#fef2f2':'#f0fdf4'}; border-bottom: 4px solid ${risk?'#dc2626':'#16a34a'};
+            padding: 24px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .header-left h1 { font-size: 22px; font-weight: 700; }
+  .header-left p { color: #6b7280; font-size: 13px; margin-top: 4px; }
+  .pct-big { font-size: 48px; font-weight: 800; color: ${pctColor}; line-height: 1; }
+  .pct-label { font-size: 12px; color: #9ca3af; text-align: right; margin-top: 2px; }
+  .stats-row { display: flex; gap: 12px; padding: 20px 32px; flex-wrap: wrap; }
+  .stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 18px; flex: 1; min-width: 100px; }
+  .stat .val { font-size: 22px; font-weight: 700; }
+  .stat .lbl { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+  .section { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin: 0 32px 20px; padding: 20px 24px; }
+  .section h2 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+                color: #9ca3af; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f3f4f6; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #9ca3af;
+       text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px solid #f3f4f6; }
+  .footer { text-align: center; padding: 24px; color: #d1d5db; font-size: 11px; }
+  ${risk ? '.risk-badge{display:inline-block;background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:10px;vertical-align:middle}' : ''}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <h1>${esc(result.name)}${risk?'<span class="risk-badge">AT RISK</span>':''}</h1>
+    <p>Attendance Report &nbsp;·&nbsp; ${esc(dateRange)}</p>
+  </div>
+  <div style="text-align:right">
+    <div class="pct-big">${pct}</div>
+    <div class="pct-label">Attendance</div>
+  </div>
+</div>
+<div class="stats-row">
+  <div class="stat"><div class="val">${result.total_assigned}</div><div class="lbl">Assigned Shifts</div></div>
+  <div class="stat"><div class="val">${result.worked}</div><div class="lbl">Worked</div></div>
+  <div class="stat"><div class="val" style="color:${result.no_timeclock>0?'#d97706':'#111'}">${result.no_timeclock}</div><div class="lbl">No Clock-In</div></div>
+  <div class="stat"><div class="val">${result.abs_self + result.abs_staff}</div><div class="lbl">Absences</div></div>
+  <div class="stat"><div class="val">${result.dropped}</div><div class="lbl">Shifts Dropped</div></div>
+</div>
+<div class="section">
+  <h2>Shift History (${clockinSorted.length})</h2>
+  ${clockinSorted.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>${shiftRows}</tbody></table>` : '<p style="color:#aaa;font-style:italic;font-size:13px">No shift history.</p>'}
+</div>
+<div class="section">
+  <h2>Absences (${detail.absences.length})</h2>
+  ${absRows}
+</div>
+<div class="section">
+  <h2>Shift Requests (${detail.shifts.length})</h2>
+  ${reqRows}
+</div>
+<div class="footer">Generated by Attendance Analyzer &nbsp;·&nbsp; ${new Date().toLocaleDateString()}</div>
+</body>
+</html>`;
+}
 </script>
+
+<!-- GitHub Push Modal -->
+<div id="github-push-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:8px;padding:28px 32px;max-width:560px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="font-size:16px;font-weight:700;color:#111">🚀 Push Worker Files to GitHub</h2>
+      <button onclick="closeGitHubPushModal()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer;padding:0 4px">✕</button>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:4px">GitHub Personal Access Token</label>
+      <input id="gh-token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+        style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 12px;font-size:13px;font-family:monospace;outline:none"
+        autocomplete="off">
+      <p style="font-size:11px;color:#9ca3af;margin-top:4px">Needs <code>repo</code> scope on <strong>squeaksquad/studio-worker-data</strong>. Saved locally in your browser.</p>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:8px">Worker Emails — confirm or correct before pushing</label>
+      <div id="gh-email-rows" style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px"></div>
+    </div>
+
+    <div id="gh-push-status" style="font-size:12px;color:#6b7280;min-height:18px;margin-bottom:12px"></div>
+
+    <div style="display:flex;gap:8px">
+      <button id="gh-push-btn" onclick="executePushToGitHub()"
+        style="flex:1;background:#166534;color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">
+        🚀 Push All Worker Files
+      </button>
+      <button onclick="closeGitHubPushModal()"
+        style="padding:10px 16px;background:#fff;border:1px solid #d1d5db;border-radius:6px;font-size:13px;color:#374151;cursor:pointer">
+        Cancel
+      </button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
