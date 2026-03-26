@@ -151,7 +151,7 @@ td.c-red  { color: #dc2626; }
 tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px solid #dce3f0; overflow-x: auto; }
 .detail-panel { padding: 10px 12px 12px 12px; }
 .detail-sections { display: grid; grid-template-columns: repeat(3, 340px); gap: 12px; }
-.detail-section h4 { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #888; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e4ee; }
+.detail-section h4 { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #888; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e4ee; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
 .detail-section h4.h-attendance { color: #4a8f5e; border-color: #c6e0ce; }
 .detail-section h4.h-absences   { color: #b45309; border-color: #fde68a; }
 .detail-section h4.h-drops      { color: #b91c1c; border-color: #fecaca; }
@@ -170,8 +170,11 @@ tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px sol
 .di-badge.clocked { background: #f0fdf4; color: #15803d; }
 .di-badge.manual  { background: #ede9fe; color: #6d28d9; }
 .di-badge.autocorrect { background: #dbeafe; color: #1d4ed8; }
-.shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer; margin-left: 8px; transition: all .12s; vertical-align: middle; }
+.shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer; margin-left: 4px; transition: all .12s; vertical-align: middle; white-space: nowrap; }
 .shift-filter-btn.active { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.shift-copy-btn { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #9ca3af; cursor: pointer; margin-left: 2px; transition: all .12s; vertical-align: middle; white-space: nowrap; line-height: 1; }
+.shift-copy-btn:hover { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
+.shift-copy-btn.copied { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
 .mark-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
 .mark-btn:hover { border-color: #6d28d9; color: #6d28d9; background: #faf5ff; }
 .mark-btn.undo { border-color: #d1d5db; color: #9ca3af; background: #f9fafb; }
@@ -1591,6 +1594,7 @@ function buildAttDetail(key,r) {
   // Per-employee no-clock-in filter state
   if (!state.shiftFilter) state.shiftFilter = {};
   const showOnlyNoClock = !!state.shiftFilter[key];
+  const showOnlyLate    = !!state.shiftFilter[key+'_late'];
   const showNewestFirst = !!state.shiftFilter[key+'_asc'];
 
   // Sort all clockin entries by date+startTime so all types intermingle chronologically
@@ -1613,10 +1617,15 @@ function buildAttDetail(key,r) {
 
   const allClockIn = [...d.clockin].sort((a, b) => shiftSortKey(a) - shiftSortKey(b));
   const noCockInCount = allClockIn.filter(s => !s.hasClock).length;
-  // Auto-reset the no-clock-in filter if there are no unclocked shifts left
+  const lateCount = allClockIn.filter(s => s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES).length;
+  // Auto-reset filters if no matching shifts left
   if (showOnlyNoClock && noCockInCount === 0) { state.shiftFilter[key] = false; }
+  if (showOnlyLate    && lateCount     === 0) { state.shiftFilter[key+'_late'] = false; }
   const showOnlyNoClockActive = showOnlyNoClock && noCockInCount > 0;
-  let clockin = showOnlyNoClockActive ? allClockIn.filter(s => !s.hasClock) : allClockIn;
+  const showOnlyLateActive    = showOnlyLate    && lateCount     > 0;
+  let clockin = allClockIn;
+  if (showOnlyNoClockActive) clockin = clockin.filter(s => !s.hasClock);
+  if (showOnlyLateActive)    clockin = clockin.filter(s => s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
   if (showNewestFirst) clockin = [...clockin].reverse();
   // Sort state for absences and shift requests (stored in shiftFilter with _abs/_req suffix)
   if (!state.shiftFilter) state.shiftFilter = {};
@@ -1638,7 +1647,7 @@ function buildAttDetail(key,r) {
   // Build a set of dates that have an absence entry, for quick lookup
   const absenceDates = new Set(d.absences.map(a => a.date));
 
-  const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClock?'No unclocked shifts':'No shift data'}</p>`:clockin.map(s=>{
+  const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClockActive?'No unclocked shifts':showOnlyLateActive?'No late shifts':'No shift data'}</p>`:clockin.map(s=>{
     const sKey=`${key}|${s.date}|${s.time}`;
     const isManual = state.overrides.has(sKey);
     const isAuto   = state.autocorrections && state.autocorrections.has(sKey);
@@ -1692,22 +1701,23 @@ function buildAttDetail(key,r) {
   return `<div class="detail-panel"><div class="detail-sections">
     <div class="detail-section">
       <h4 class="h-attendance">
-        Shift History (${allClockIn.length})
+        <span>Shift History (${allClockIn.length})</span>
         <button class="shift-filter-btn" onclick="event.stopPropagation();toggleShiftSort('${key}')">${showNewestFirst?'↑ Newest first':'↓ Oldest first'}</button>
-        ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClockActive?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClockActive?'Show all':'No clock-in only'}</button>`:''}
+        ${noCockInCount>0?`<button class="shift-filter-btn${showOnlyNoClockActive?' active':''}" onclick="event.stopPropagation();toggleShiftFilter('${key}')">${showOnlyNoClockActive?'Show all':'No clock-in only'}</button><button class="shift-copy-btn" title="Copy no clock-in shifts to clipboard" onclick="event.stopPropagation();copyShiftList('${key}','noclock',this)">⧉</button>`:''}
+        ${lateCount>0?`<button class="shift-filter-btn${showOnlyLateActive?' active':''}" onclick="event.stopPropagation();toggleLateFilter('${key}')">${showOnlyLateActive?'Show all':'Late clock-ins only'}</button><button class="shift-copy-btn" title="Copy late clock-in shifts to clipboard" onclick="event.stopPropagation();copyShiftList('${key}','late',this)">⧉</button>`:''}
       </h4>
       ${clockHtml}
     </div>
     <div class="detail-section">
       <h4 class="h-absences">
-        Absences (${absences.length})
+        <span>Absences (${absences.length})</span>
         ${d.absences.length>1?`<button class="shift-filter-btn" onclick="event.stopPropagation();toggleSectionSort('${key}','abs')">${absNewest?'\u2191 Newest first':'\u2193 Oldest first'}</button>`:''}
       </h4>
       ${absHtml}
     </div>
     <div class="detail-section">
       <h4 class="h-drops">
-        Shift Requests (${shifts.length})
+        <span>Shift Requests (${shifts.length})</span>
         ${d.shifts.length>1?`<button class="shift-filter-btn" onclick="event.stopPropagation();toggleSectionSort('${key}','req')">${reqNewest?'\u2191 Newest first':'\u2193 Oldest first'}</button>`:''}
       </h4>
       ${shiftHtml}
@@ -1719,6 +1729,38 @@ function toggleShiftFilter(key) {
   if (!state.shiftFilter) state.shiftFilter = {};
   state.shiftFilter[key] = !state.shiftFilter[key];
   renderAttRows();
+}
+function toggleLateFilter(key) {
+  if (!state.shiftFilter) state.shiftFilter = {};
+  state.shiftFilter[key+'_late'] = !state.shiftFilter[key+'_late'];
+  renderAttRows();
+}
+function copyShiftList(key, mode, btn) {
+  const d = state.detailMap && state.detailMap[key];
+  if (!d || !d.clockin) return;
+  const LATE_THRESHOLD_MINUTES = 10;
+  let shifts;
+  if (mode === 'noclock') {
+    shifts = d.clockin.filter(s => !s.hasClock);
+  } else {
+    shifts = d.clockin.filter(s => s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
+  }
+  if (!shifts.length) return;
+  const lines = shifts.map(s => {
+    const meta = [s.date, s.time, s.site, s.position].filter(Boolean).join(' | ');
+    if (mode === 'late') {
+      const lateInfo = fmtLateMinutes(s.lateMinutes);
+      const actualStr = s.actualClockInMs !== undefined ? ` (clocked in ${fmtActualClockIn(s.actualClockInMs)}, ${lateInfo.label})` : '';
+      return meta + actualStr;
+    }
+    return meta;
+  });
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⧉'; btn.classList.remove('copied'); }, 1500);
+  });
 }
 function toggleStrictDrops() {
   state.strictDrops = !state.strictDrops;
