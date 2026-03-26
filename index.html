@@ -73,7 +73,7 @@ header span { font-size: 12px; color: #888; }
 .export-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .export-btn:disabled { opacity: .4; cursor: not-allowed; }
 .info-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.9; }
-.info-box strong { color: #374151; display: block; margin-top: 6px; }
+.info-box strong { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; display: block; margin-top: 8px; margin-bottom: 1px; }
 .info-box strong:first-child { margin-top: 0; }
 
 /* ── Main ── */
@@ -217,6 +217,13 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
 
 .error-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #dc2626; margin-bottom: 14px; }
 .offset-select { width: 100%; padding: 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; outline: none; cursor: pointer; color: #111; }
+.details-arrow { display: inline-block; font-size: 9px; transition: transform .15s; }
+details[open] > summary .details-arrow { transform: rotate(90deg); }
+.btn-row { display: flex; gap: 4px; margin-top: 4px; }
+.btn-row .export-btn { margin-top: 0; flex: 1; min-width: 0; }
+.btn-compact { flex-shrink: 0; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 10px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; color: #374151; }
+.btn-compact:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.btn-compact:disabled { opacity: .4; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -315,13 +322,25 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
       <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
     </div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled>Analyze</button>
-    <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">&#9881;&#65039; Correct WhenIWork Clock Discrepancies</button>
-    <button class="export-btn" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626">&#8593; Undo All Auto-Corrections (<span id="correction-count">0</span>)</button>
-    <button class="export-btn" id="export-btn" onclick="exportReport()" disabled>Export to Excel</button>
-    <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot (shareable)</button>
+
+    <!-- Clock discrepancy row: main button + compact undo -->
+    <div class="btn-row">
+      <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">&#9881;&#65039; Correct Clock Discrepancies</button>
+      <button class="btn-compact" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626" title="Undo all auto-corrections">↩ <span id="correction-count">0</span></button>
+    </div>
+
+    <!-- Export row: Snapshot (primary) + Excel (compact) -->
+    <div class="btn-row">
+      <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot</button>
+      <button class="btn-compact" id="export-btn" onclick="exportReport()" disabled title="Export to Excel">Excel</button>
+    </div>
+
+    <!-- PDF row: single worker (with dropdown) + all workers -->
     <div style="position:relative;margin-top:4px" id="worker-pdf-wrapper">
-      <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e">&#128196; Export Worker Report (PDF)</button>
-      <button class="export-btn" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e;margin-top:2px">&#128230; Export All Worker Reports (.zip)</button>
+      <div class="btn-row" style="margin-top:0">
+        <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="margin-top:0;background:#fefce8;border-color:#fde047;color:#854d0e">&#128196; Worker PDF</button>
+        <button class="btn-compact" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e" title="Export all worker reports as .zip">&#128230; All</button>
+      </div>
       <div id="worker-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;margin-top:2px">
         <div style="padding:6px 8px;border-bottom:1px solid #f3f4f6">
           <input id="worker-search" type="text" placeholder="Search employee..." oninput="filterWorkerDropdown(this.value)"
@@ -333,7 +352,7 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
     </div>
     <details style="margin-top:8px">
       <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
-        <span id="tz-arrow" style="font-size:9px">▶</span> Timezone &amp; Advanced
+        <span class="details-arrow">▶</span> Timezone &amp; Advanced
       </summary>
       <div style="margin-top:6px">
         <div style="font-size:10px;color:#9ca3af;margin-bottom:3px">Timezone</div>
@@ -343,6 +362,32 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
           <option value="-5">Force EST (-5)</option>
           <option value="literal">Literal (as written)</option>
         </select>
+      </div>
+    </details>
+    <details id="closures-details" style="margin-top:8px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+        <span class="details-arrow">▶</span> College Closed Days
+        <span id="closures-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#e0f2fe;color:#0369a1;border-radius:3px;padding:1px 5px"></span>
+      </summary>
+      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+        Dates excluded from the "available slots" calculation in Prep &amp; Closing. Auto-detected when no one has any P&amp;C activity on a given date.
+      </div>
+      <div id="closures-reanalyze-banner" style="display:none;background:#fef3c7;border:1px solid #fde68a;border-radius:4px;padding:6px 10px;margin-bottom:6px;font-size:11px;color:#92400e;display:none">
+        ⚠ Closed days changed —
+        <button onclick="analyze()" style="font-size:11px;font-weight:700;color:#1d4ed8;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">re-analyze</button>
+        to update results.
+      </div>
+      <div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Auto-detected</div>
+      <div id="inferred-closures-list" style="margin-bottom:8px">
+        <div style="font-size:11px;color:#d1d5db;font-style:italic">Run analyze to detect</div>
+      </div>
+      <div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Add manually</div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="date" id="closure-date-input" style="flex:1;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;min-width:0">
+        <button onclick="addManualClosure()" style="padding:4px 8px;font-size:11px;font-weight:600;background:#0369a1;color:#fff;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">+ Add</button>
+      </div>
+      <div id="manual-closures-list" style="margin-top:6px">
+        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
       </div>
     </details>
     <div class="info-box">
@@ -375,11 +420,15 @@ const state = {
   results: null, detailMap: {}, prepCloseData: null,
   mode: 'attendance',
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
-  pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview' },
-  overrides: new Set(),  // shift keys manually marked as worked
+  pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview', adjustForStartDate:true },
+  overrides: new Set(),        // shift keys manually marked as worked
   autocorrections: new Set(),  // shift keys auto-corrected by discrepancy fixer
-  strictDrops: true   // if true, covered drops also count against attendance
+  strictDrops: true,           // if true, covered drops also count against attendance
+  inferredClosures: new Set(), // auto-detected college-closed dates (YYYY-MM-DD)
+  manualClosures:   new Set(), // manually entered college-closed dates (YYYY-MM-DD)
+  closuresDirty: false         // true when closures changed but not yet re-analyzed
 };
+let _analyzing = false; // re-entrancy guard — prevents onDateFilterChange from re-triggering analyze()
 
 // ── File loading ──────────────────────────────────────────────────────────────
 // ── File type detection by filename ──────────────────────────────────────────
@@ -688,6 +737,12 @@ function shiftDateToMs(dateVal) {
 }
 
 function analyze() {
+  if (_analyzing) return; // prevent re-entrant calls from onDateFilterChange
+  _analyzing = true;
+  try { _analyzeInner(); } finally { _analyzing = false; }
+}
+
+function _analyzeInner() {
   // Reset auto-corrections so they get re-applied fresh after each analysis
   state.autocorrections = new Set();
   updateCorrectionCount();
@@ -699,50 +754,100 @@ function analyze() {
     correctBtn.style.color = '#1d4ed8';
   }
   try {
-    const built = buildResults();
-    state.results     = built.results;
-    state.detailMap   = built.detailMap;
-    // Compute total weeks in the active date range for recurring-commitment math
-    const _fromEl = document.getElementById('filter-date-from');
-    const _toEl   = document.getElementById('filter-date-to');
-    let totalWeeks = null;
-    if (_fromEl && _fromEl.value && _toEl && _toEl.value) {
-      const diffMs = new Date(_toEl.value + 'T00:00:00Z') - new Date(_fromEl.value + 'T00:00:00Z');
-      totalWeeks = Math.max(1, Math.round(diffMs / (7 * 24 * 3600 * 1000)));
-    } else if (built.rawShifts.length) {
-      // Fall back to data range
-      let minMs = Infinity, maxMs = -Infinity;
-      for (const s of built.rawShifts) {
-        const ms = shiftDateToMs(s.dateVal);
-        if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
+    // ── Pre-pass: if date inputs are empty, do a lightweight scan to find the
+    // data range and populate them BEFORE the real buildResults() call.
+    // This ensures buildResults always runs with the correct date filter applied.
+    const fromEl = document.getElementById('filter-date-from');
+    const toEl   = document.getElementById('filter-date-to');
+    if (!fromEl.value && !toEl.value) {
+      // Call buildResults with no filter to get rawShifts for range detection
+      const probe = buildResults();
+      if (probe.rawShifts.length) {
+        let minMs = Infinity, maxMs = -Infinity;
+        for (const s of probe.rawShifts) {
+          const ms = shiftDateToMs(s.dateVal);
+          if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
+        }
+        if (isFinite(minMs)) {
+          const toISO = ms => new Date(ms).toISOString().slice(0, 10);
+          fromEl.value = toISO(minMs);
+          toEl.value   = toISO(maxMs);
+          onDateFilterChange(); // updates label only — _analyzing guard blocks re-entrant analyze()
+        }
       }
-      if (isFinite(minMs)) totalWeeks = Math.max(1, Math.round((maxMs - minMs) / (7 * 24 * 3600 * 1000)) + 1);
     }
-    state.prepCloseData = buildPrepCloseData(built.rawShifts, built.mergedShifts, built.allResults, totalWeeks);
+
+    // ── Main pass: buildResults now runs with date filter correctly applied ──
+    const built = buildResults();
+    state.results   = built.results;
+    state.detailMap = built.detailMap;
     state.att.openRows.clear();
     state.pc.openRows.clear();
     state.shiftFilter = {};
     updateDateRangePill(built.rawShifts);
-    // Auto-populate date inputs from data range if not yet set by user
-    const fromEl = document.getElementById('filter-date-from');
-    const toEl   = document.getElementById('filter-date-to');
-    if (!fromEl.value && !toEl.value && built.rawShifts.length) {
+
+    // ── Step 2: Resolve date range (now inputs are populated) ─────────────
+    let rangeFrom = null, rangeTo = null;
+    { const { fromMs, toMs } = getDateFilterMs(); rangeFrom = fromMs; rangeTo = toMs; }
+    if (!rangeFrom || !rangeTo) {
       let minMs = Infinity, maxMs = -Infinity;
       for (const s of built.rawShifts) {
         const ms = shiftDateToMs(s.dateVal);
         if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
       }
-      if (isFinite(minMs)) {
-        const toISO = ms => new Date(ms).toISOString().slice(0,10);
-        fromEl.value = toISO(minMs);
-        toEl.value   = toISO(maxMs);
-        onDateFilterChange();
-      }
+      if (isFinite(minMs)) { rangeFrom = minMs; rangeTo = maxMs; }
     }
-    // Auto-apply clock discrepancy correction if timesheets are loaded
+
+    // ── Step 3: Compute totalWeeks from the resolved range ────────────────
+    let totalWeeks = null;
+    if (rangeFrom && rangeTo) {
+      totalWeeks = Math.max(1, Math.round((rangeTo - rangeFrom) / (7 * 24 * 3600 * 1000)) + 1);
+    }
+
+    // ── Step 4: Infer college-closed days (no P&C activity) ──────────────
+    state.inferredClosures = inferClosuresFromData(built.rawShifts, built.mergedShifts, rangeFrom, rangeTo);
+
+    // ── Step 5: Apply timesheet clock corrections BEFORE building P&C ────
+    // autoCorrectAfterTimesheetLoad mutates state.detailMap[key].clockin[*].hasClock.
+    // Run it now so P&C percentages reflect corrected clock-ins, not raw data.
     if (state.timesheets && state.timesheets.length || state.timesheets2 && state.timesheets2.length) {
       autoCorrectAfterTimesheetLoad();
+      // Sync corrected hasClock values back into rawShifts.
+      // Join key: nameKey + date + startH + startM (detailMap clockin stores fmtTime which
+      // encodes the same hour/minute, so we parse it back for matching).
+      // Simpler: build a lookup from autocorrections set which stores "nameKey|date|time".
+      // rawShifts don't have the formatted time, so instead re-derive from startH/startM.
+      if (state.autocorrections.size > 0) {
+        // Build a set of "nameKey|date|startH|startM" for corrected shifts
+        const correctedKeys = new Set();
+        for (const sKey of state.autocorrections) {
+          // sKey format: "nameKey|Jan 20, 2026|1pm – 4pm"
+          const parts = sKey.split('|');
+          if (parts.length < 3) continue;
+          const nameKey = parts[0], date = parts[1], timeStr = parts[2];
+          // Parse startH/startM from the time string (e.g. "1pm" or "7:30am")
+          const startStr = timeStr.split('–')[0].trim();
+          const tm = startStr.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+          if (!tm) continue;
+          let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
+          if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+          if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
+          correctedKeys.add(`${nameKey}|${date}|${h}|${m}`);
+        }
+        for (const s of built.rawShifts) {
+          const k = `${s.nameKey}|${s.date}|${s.startH}|${s.startM}`;
+          if (correctedKeys.has(k)) s.hasClock = true;
+        }
+      }
     }
+
+    // ── Step 6: Build P&C data with closures and corrections factored in ──
+    state.prepCloseData = buildPrepCloseData(built.rawShifts, built.mergedShifts, built.allResults, totalWeeks);
+    // Cache for toggle re-builds (e.g. adjustForStartDate) without full re-analyze
+    state._lastBuilt = { rawShifts: built.rawShifts, mergedShifts: built.mergedShifts, allResults: built.allResults, totalWeeks };
+
+    state.closuresDirty = false;
+    renderClosuresSidebar();
     renderMain();
     document.getElementById('export-btn').disabled = false;
     document.getElementById('snapshot-btn').disabled = false;
@@ -1080,39 +1185,80 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
   }
 
   // ── Step 5: Compute per-DOW available counts from the date range ─────────
-  // Instead of a single totalWeeks threshold, count how many of each day-of-week
-  // actually exist in the active date range. This avoids off-by-one errors from
-  // rounding and handles ranges that don't start/end on clean week boundaries.
-  // Threshold: a day is recurring if occurrences >= 50% of available slots for that DOW.
-  const dowAvailable = {}; // e.g. { Monday: 7, Tuesday: 8, ... }
-  {
-    const { fromMs, toMs } = getDateFilterMs();
-    // Use rawShifts date range as fallback bounds
-    let rangeFrom = fromMs, rangeTo = toMs;
-    if (!rangeFrom || !rangeTo) {
-      let minMs = Infinity, maxMs = -Infinity;
-      for (const s of rawShifts) {
-        const ms = shiftDateToMs(s.dateVal);
-        if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
-      }
-      if (isFinite(minMs)) { rangeFrom = minMs; rangeTo = maxMs; }
+  const { fromMs: _rangeFromMs, toMs: _rangeToMs } = getDateFilterMs();
+  let _rangeFrom = _rangeFromMs, _rangeTo = _rangeToMs;
+  if (!_rangeFrom || !_rangeTo) {
+    let minMs = Infinity, maxMs = -Infinity;
+    for (const s of rawShifts) {
+      const ms = shiftDateToMs(s.dateVal);
+      if (ms !== null) { if (ms < minMs) minMs = ms; if (ms > maxMs) maxMs = ms; }
     }
-    if (rangeFrom && rangeTo) {
-      // Walk every day in the range and count each DOW
-      let cur = new Date(rangeFrom);
-      cur.setUTCHours(0, 0, 0, 0);
-      const end = new Date(rangeTo);
-      end.setUTCHours(23, 59, 59, 999);
-      while (cur <= end) {
+    if (isFinite(minMs)) { _rangeFrom = minMs; _rangeTo = maxMs; }
+  }
+
+  const closedISO = allClosures();
+
+  // Helper: count available DOW slots from a given startMs to rangeTo, excluding closures
+  function countDowAvailable(startMs) {
+    const result = {};
+    if (!startMs || !_rangeTo) return result;
+    let cur = new Date(startMs);
+    cur.setUTCHours(0, 0, 0, 0);
+    const end = new Date(_rangeTo);
+    end.setUTCHours(23, 59, 59, 999);
+    while (cur <= end) {
+      const iso = cur.toISOString().slice(0, 10);
+      if (!closedISO.has(iso)) {
         const dow = DAYS[cur.getUTCDay()];
-        dowAvailable[dow] = (dowAvailable[dow] || 0) + 1;
-        cur.setUTCDate(cur.getUTCDate() + 1);
+        result[dow] = (result[dow] || 0) + 1;
       }
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return result;
+  }
+
+  // Global available (used when toggle is off, or employee started within 1 week of range)
+  const dowAvailable = countDowAvailable(_rangeFrom);
+
+  // Per-employee first shift date — from rawShifts and shift requests
+  // Used to adjust available slots for late-starting employees
+  const empFirstShiftMs = {}; // nameKey -> ms of first shift
+  for (const s of rawShifts) {
+    const ms = shiftDateToMs(s.dateVal);
+    if (ms !== null) {
+      if (!empFirstShiftMs[s.nameKey] || ms < empFirstShiftMs[s.nameKey])
+        empFirstShiftMs[s.nameKey] = ms;
+    }
+  }
+  if (mergedShiftRequests) {
+    for (const row of mergedShiftRequests) {
+      const assignee = normName((row['Assignee'] || '').toString().trim());
+      if (!assignee) continue;
+      const dateVal = row['Shift Start Date'];
+      if (!dateVal) continue;
+      const p = parseUniversal(dateVal);
+      if (!p || p.y === undefined) continue;
+      const ms = new Date(p.y, p.mo, p.d).getTime();
+      if (!empFirstShiftMs[assignee] || ms < empFirstShiftMs[assignee])
+        empFirstShiftMs[assignee] = ms;
     }
   }
 
+  const ONE_WEEK_MS = 7 * 24 * 3600 * 1000;
+  const adjustForStartDate = state.pc.adjustForStartDate;
+
   // ── Step 5b: Summarize into empRows ──────────────────────────────────────
-  const summarize = (dowMap) => {
+  const summarize = (dowMap, nameKey) => {
+    // Determine which dowAvailable to use for this employee
+    let empDowAvail = dowAvailable;
+    if (adjustForStartDate && nameKey && _rangeFrom) {
+      const firstMs = empFirstShiftMs[nameKey];
+      // Only adjust if they started more than 1 week after the range start
+      if (firstMs && firstMs > _rangeFrom + ONE_WEEK_MS) {
+        empDowAvail = countDowAvailable(firstMs);
+      }
+    }
+
     const commitments = [];
     let totalAll = 0, workedAll = 0;
     for (const dow of DAYS) {
@@ -1121,24 +1267,23 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
       const total     = shifts.length;
       const worked    = shifts.filter(s => s.hasClock).length;
 
-      // Recurring = occurrences >= 33% of available slots for this specific DOW
-      const available = dowAvailable[dow] || (totalWeeks || 4);
-      const recurring = total >= available * 0.33;
+      // Recurring = at least 2 occurrences AND >= 33% of available slots for this DOW.
+      // The minimum-2 rule prevents a single recorded shift from being treated as a
+      // weekly commitment (important for new hires with limited data).
+      const available = empDowAvail[dow] || (totalWeeks || 4);
+      const recurring = total >= 2 && total >= available * 0.33;
 
-      // pct for display = worked out of shifts we have records for (within total)
+      // pct for display = worked out of shifts we have records for
       const pctDisplay = total > 0 ? Math.round((worked / total) * 100) : 0;
 
-      // pct for credit = worked out of ALL available slots in the period
-      // This is the true attendance rate — e.g. 2 worked out of 7 possible Mondays = 29%
+      // pct for credit = worked out of available slots (adjusted for start date if applicable)
       const pctCredit = Math.round((worked / available) * 100);
 
-      // Status and credits use pctCredit so a sparse record can't earn full credit
       let status = 'once';
       if (recurring) { status = pctCredit >= 80 ? 'met' : pctCredit >= 50 ? 'partial' : 'missed'; }
 
       commitments.push({ dow, total, worked, available, pct: pctDisplay, pctCredit, recurring, status, shifts });
 
-      // Overall P&C % also uses available-based math for consistency
       if (recurring) { totalAll += available; workedAll += worked; }
     }
     const overallPct = totalAll > 0 ? Math.round((workedAll / totalAll) * 100) : null;
@@ -1148,8 +1293,8 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
   // Build a map of nameKey -> empRow for employees with P&C data
   const pcMap = {};
   for (const [key, data] of Object.entries(byEmpType)) {
-    const prep  = summarize(data.prep);
-    const close = summarize(data.close);
+    const prep  = summarize(data.prep,  key);
+    const close = summarize(data.close, key);
 
     // hasPrep/hasClose = has ANY shift data for that bucket (worked, no-clock-in, or dropped)
     // Use commitments.length, NOT totalAll (which only counts recurring days)
@@ -1560,8 +1705,16 @@ function renderPrepClose() {
   // hasPrep/hasClose now means "has any P&C commitment data" — use for counts
   const prepEmps   = data.filter(e => e.hasPrep);
   const closeEmps  = data.filter(e => e.hasClose);
-  const prepIssues  = prepEmps.filter(e => e.prep.commitments.some(c => c.recurring && c.pct < 50)).length;
-  const closeIssues = closeEmps.filter(e => e.close.commitments.some(c => c.recurring && c.pct < 50)).length;
+  const prepIssues  = prepEmps.reduce((sum, e) => {
+    const cr = e.prep.commitments.filter(c => c.recurring);
+    const credits = cr.filter(c => c.pctCredit >= 50).length;
+    return sum + (cr.length - credits);
+  }, 0);
+  const closeIssues = closeEmps.reduce((sum, e) => {
+    const cr = e.close.commitments.filter(c => c.recurring);
+    const credits = cr.filter(c => c.pctCredit >= 50).length;
+    return sum + (cr.length - credits);
+  }, 0);
 
   // Filter
   const q = (state.pc.filterText || '').toLowerCase();
@@ -1569,8 +1722,8 @@ function renderPrepClose() {
   let rows = [...data];
   if (q) rows = rows.filter(e => e.name.toLowerCase().includes(q));
   if (showIssues) rows = rows.filter(e =>
-    (e.hasPrep  && e.prep.commitments.some(c => c.recurring && c.pct < 50)) ||
-    (e.hasClose && e.close.commitments.some(c => c.recurring && c.pct < 50))
+    (e.hasPrep  && e.prep.commitments.some(c => c.recurring && c.pctCredit < 50)) ||
+    (e.hasClose && e.close.commitments.some(c => c.recurring && c.pctCredit < 50))
   );
 
   const tableRows = rows.map(e => buildPcUnifiedRow(e)).join('');
@@ -1579,15 +1732,19 @@ function renderPrepClose() {
   <div class="main-header">
     <div class="stats-sticky"><div class="stats-row cols-4" style="margin-bottom:10px">
       <div class="stat-card"><div class="val">${prepEmps.length}</div><div class="lbl">Employees with Prep Shifts</div></div>
-      <div class="stat-card"><div class="val red">${prepIssues}</div><div class="lbl">Prep Commitment Issues</div></div>
+      <div class="stat-card"><div class="val red">${prepIssues}</div><div class="lbl">Prep Credits Missed</div></div>
       <div class="stat-card"><div class="val">${closeEmps.length}</div><div class="lbl">Employees with Closing Shifts</div></div>
-      <div class="stat-card"><div class="val red">${closeIssues}</div><div class="lbl">Closing Commitment Issues</div></div>
+      <div class="stat-card"><div class="val red">${closeIssues}</div><div class="lbl">Closing Credits Missed</div></div>
     </div></div>
   </div>
   <div class="filter-bar-sticky">
     <div class="filter-row">
       <input type="text" placeholder="Search by name…" oninput="pcFilterUnified(this.value)">
       <label><input type="checkbox" ${state.pc.showIssuesOnly.prep ? 'checked' : ''} onchange="pcIssuesUnified(this.checked)"> Issues only</label>
+      <label id="adjust-start-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.pc.adjustForStartDate?'#1e40af':'#374151'};padding:3px 8px;border:1px solid ${state.pc.adjustForStartDate?'#93c5fd':'#d1d5db'};border-radius:4px;background:${state.pc.adjustForStartDate?'#eff6ff':'#f9fafb'};user-select:none" onclick="toggleAdjustForStartDate()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.pc.adjustForStartDate?'#3b82f6':'#d1d5db'};flex-shrink:0"></span>
+        <span>Adjust for onboarding date</span>
+      </label>
       <span class="row-count">${rows.length} employees</span>
     </div>
   </div>
@@ -1736,6 +1893,20 @@ function togglePcUnified(key) {
 
 function pcFilterUnified(val) { state.pc.filterText = val; renderPrepClose(); }
 function pcIssuesUnified(val) { state.pc.showIssuesOnly.prep = val; state.pc.showIssuesOnly.close = val; renderPrepClose(); }
+function toggleAdjustForStartDate() {
+  state.pc.adjustForStartDate = !state.pc.adjustForStartDate;
+  // Re-build P&C data with the new setting, then re-render
+  if (state.results) {
+    // Grab the cached rawShifts/mergedShifts from the last analyze — stored on state
+    if (state._lastBuilt) {
+      state.prepCloseData = buildPrepCloseData(
+        state._lastBuilt.rawShifts, state._lastBuilt.mergedShifts,
+        state._lastBuilt.allResults, state._lastBuilt.totalWeeks
+      );
+    }
+  }
+  renderPrepClose();
+}
 
 function togglePcDetail(key){ const s=state.pc.openRows; const wasOpen=s.has(key); s.clear(); if(!wasOpen) s.add(key); renderPrepClose(); requestAnimationFrame(() => { if(!wasOpen) scrollPcRowIntoView(key); }); }
 
@@ -2166,15 +2337,15 @@ async function exportWorkerPDF(nameKey, returnBlob) {
 
       empData.commitments.forEach(c => {
         checkY(rowH*2+8);
-        const pctColor = !c.recurring ? C.muted : c.pct>=80 ? C.green : c.pct>=50 ? C.amber : C.red;
-        const commitBg = !c.recurring ? C.bg : c.pct>=80 ? C.greenBg : c.pct>=50 ? C.amberBg : C.redBg;
+        const pctColor = !c.recurring ? C.muted : c.pctCredit>=80 ? C.green : c.pctCredit>=50 ? C.amber : C.red;
+        const commitBg = !c.recurring ? C.bg : c.pctCredit>=80 ? C.greenBg : c.pctCredit>=50 ? C.amberBg : C.redBg;
         doc.setFillColor(...commitBg);
         doc.roundedRect(ML, y, CW, rowH, 3, 3, 'F');
         doc.setFontSize(10); doc.setFont(undefined,'bold'); doc.setTextColor(...C.text);
         doc.text(c.dow + (c.recurring ? '' : ' (one-time)'), ML+8, y+13);
         if (c.recurring) {
           doc.setTextColor(...pctColor);
-          doc.text(c.pct + '%  ' + c.worked + '/' + c.total + ' shifts', PW-MR-8, y+13, {align:'right'});
+          doc.text(c.pctCredit + '%  ' + c.worked + '/' + c.available + ' slots', PW-MR-8, y+13, {align:'right'});
         }
         y += rowH+2;
 
@@ -2250,6 +2421,11 @@ function buildTimesheetIndex() {
         return v.getTime();
       }
       if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
+      if (typeof v === 'string' && v.length > 0) {
+        // Snapshot-restored dates: JSON.stringify converts Date objects to ISO strings
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) return d.getTime();
+      }
       return null;
     };
     const startMs = toMs(startVal);
@@ -2470,6 +2646,147 @@ function updateCorrectionCount() {
   if (btn) btn.style.display = n > 0 ? '' : 'none';
 }
 
+// ── College Closed Days ───────────────────────────────────────────────────────
+
+function allClosures() {
+  // Combined set of all closed date strings (YYYY-MM-DD)
+  return new Set([...state.inferredClosures, ...state.manualClosures]);
+}
+
+function renderClosuresSidebar() {
+  const inferred = [...state.inferredClosures].sort();
+  const manual   = [...state.manualClosures].sort();
+  const total    = new Set([...inferred, ...manual]).size;
+
+  // Badge
+  const badge = document.getElementById('closures-count-badge');
+  if (badge) {
+    badge.textContent = total + ' day' + (total !== 1 ? 's' : '');
+    badge.style.display = total > 0 ? '' : 'none';
+  }
+
+  // Re-analyze banner
+  const banner = document.getElementById('closures-reanalyze-banner');
+  if (banner) banner.style.display = state.closuresDirty ? '' : 'none';
+
+  // Inferred list
+  const infEl = document.getElementById('inferred-closures-list');
+  if (infEl) {
+    if (!state.results) {
+      infEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">Run analyze to detect</div>';
+    } else if (inferred.length === 0) {
+      infEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None detected</div>';
+    } else {
+      infEl.innerHTML = inferred.map(d => {
+        const isOverridden = state.manualClosures.has(d); // can't remove inferred, only manual
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+          <span>📅 ${fmtClosureDate(d)}</span>
+          <span style="font-size:9px;color:#9ca3af;background:#f3f4f6;padding:1px 5px;border-radius:3px">auto</span>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Manual list
+  const manEl = document.getElementById('manual-closures-list');
+  if (manEl) {
+    if (manual.length === 0) {
+      manEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+    } else {
+      manEl.innerHTML = manual.map(d => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+          <span>📅 ${fmtClosureDate(d)}</span>
+          <button onclick="removeManualClosure('${d}')" style="font-size:10px;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
+        </div>`).join('');
+    }
+  }
+}
+
+function fmtClosureDate(iso) {
+  // "2026-01-20" → "Tue, Jan 20"
+  const d = new Date(iso + 'T12:00:00Z');
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' });
+}
+
+function addManualClosure() {
+  const input = document.getElementById('closure-date-input');
+  if (!input || !input.value) return;
+  const val = input.value; // YYYY-MM-DD
+  if (state.manualClosures.has(val)) { input.value = ''; return; }
+  state.manualClosures.add(val);
+  input.value = '';
+  state.closuresDirty = true;
+  renderClosuresSidebar();
+}
+
+function removeManualClosure(dateStr) {
+  state.manualClosures.delete(dateStr);
+  state.closuresDirty = true;
+  renderClosuresSidebar();
+}
+
+function inferClosuresFromData(rawShifts, mergedShiftRequests, rangeFrom, rangeTo) {
+  // Collect every date that has ANY P&C activity across all employees
+  const activeDates = new Set();
+
+  // From Shifts Worked (rawShifts already filtered to P&C time windows upstream,
+  // but we need all dates so scan rawShifts directly)
+  for (const s of rawShifts) {
+    const isPrep  = s.startH >= 6 && s.startH <= 9;
+    const isClose = s.startH >= 19 && s.startH <= 21;
+    if (isPrep || isClose) activeDates.add(s.date); // fmtDate string e.g. "Jan 20, 2026"
+  }
+
+  // From Shift Requests (drops of P&C shifts)
+  if (mergedShiftRequests) {
+    for (const row of mergedShiftRequests) {
+      const type = (row['Type'] || '').toString().trim().toLowerCase();
+      if (type !== 'drop' && type !== 'swap') continue;
+      const startVal = row['Shift Start Time'];
+      if (!startVal) continue;
+      const p = parseUniversal(startVal);
+      if (!p) continue;
+      const h = p.h;
+      if (!((h >= 6 && h <= 9) || (h >= 19 && h <= 21))) continue;
+      const dateStr = fmtDate(row['Shift Start Date']);
+      if (dateStr) activeDates.add(dateStr);
+    }
+  }
+
+  // Walk every day in the range; days with zero P&C activity = inferred closure.
+  // Skip the first and last dates of the range — data is often sparse at the
+  // boundaries (e.g. last day of a period has no shifts yet) which would cause
+  // false positives. Closures only make sense for interior dates.
+  // NOTE: closing shifts end at midnight (next calendar day) but are anchored to
+  // their START date throughout, so no off-by-one risk from midnight crossings.
+  const inferred = new Set();
+  if (rangeFrom && rangeTo) {
+    let cur = new Date(rangeFrom);
+    cur.setUTCHours(12, 0, 0, 0);
+    const end = new Date(rangeTo);
+    end.setUTCHours(23, 59, 59, 999);
+
+    // Boundary dates to skip (first and last day of range)
+    const firstISO = new Date(rangeFrom).toISOString().slice(0, 10);
+    const lastISO  = new Date(rangeTo).toISOString().slice(0, 10);
+
+    while (cur <= end) {
+      const iso = cur.toISOString().slice(0, 10);
+      // Skip boundary dates — they're unreliable indicators of closures
+      if (iso !== firstISO && iso !== lastISO) {
+        const mo = cur.getUTCMonth(), d2 = cur.getUTCDate(), y = cur.getUTCFullYear();
+        const displayDate = `${MONTHS[mo]} ${d2}, ${y}`;
+        if (!activeDates.has(displayDate)) {
+          inferred.add(iso);
+        }
+      }
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+  }
+
+  return inferred;
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 // ── Dynamic sticky offset calculation ────────────────────────────────────────
 function updateStickyOffsets() {
@@ -2534,7 +2851,9 @@ function exportSnapshot() {
     clockin2:  state.clockin2  || [],
     shifts2:   state.shifts2   || [],
     dateFrom:  fromStr,
-    dateTo:    toStr
+    dateTo:    toStr,
+    manualClosures: [...state.manualClosures],
+    overrides: [...state.overrides]
   };
   const dataJson = JSON.stringify(snapshotData);
 
@@ -2544,6 +2863,8 @@ function exportSnapshot() {
 (function() {
   var d = ${JSON.stringify(snapshotData)};
   function boot() {
+    // If this script was injected into the live page for outerHTML capture, do nothing.
+    if (window._snapshotExportInProgress) return;
     // Wait until app globals are ready
     if (typeof state === 'undefined' || typeof analyze === 'undefined' || typeof checkReady === 'undefined') {
       return setTimeout(boot, 30);
@@ -2557,6 +2878,11 @@ function exportSnapshot() {
     state.timesheets2 = d.timesheets2 || [];
     state.clockin2  = d.clockin2  || [];
     state.shifts2   = d.shifts2   || [];
+    if (d.manualClosures && d.manualClosures.length) {
+      state.manualClosures = new Set(d.manualClosures);
+    }
+    // Restore manual clock-in overrides — applied after analyze() re-derives state
+    var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
     // Set date filter inputs
     var fromEl = document.getElementById('filter-date-from');
     var toEl   = document.getElementById('filter-date-to');
@@ -2588,6 +2914,28 @@ function exportSnapshot() {
     // Update date filter label then analyze
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
     analyze();
+    // Re-apply manual overrides after analyze (which resets detailMap from raw data)
+    if (pendingOverrides.length && typeof markWorked === 'function') {
+      pendingOverrides.forEach(function(sKey) {
+        var parts = sKey.split('|');
+        if (parts.length >= 2) {
+          var nameKey = parts[0];
+          if (!state.overrides.has(sKey)) {
+            state.overrides.add(sKey);
+            var d2 = state.detailMap[nameKey];
+            if (d2) {
+              var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
+              if (entry) entry.hasClock = true;
+            }
+          }
+        }
+      });
+      // Recompute affected employees
+      var affectedKeys = new Set(pendingOverrides.map(function(k){ return k.split('|')[0]; }));
+      affectedKeys.forEach(function(k){ if (typeof recomputeEmployee === 'function') recomputeEmployee(k); });
+      if (typeof renderAttRows === 'function') renderAttRows();
+      if (typeof refreshAttStats === 'function') refreshAttStats();
+    }
   }
   // Start polling immediately — scripts may already be parsed
   boot();
@@ -2598,10 +2946,12 @@ function exportSnapshot() {
   const existingBoot = document.getElementById('snapshot-data-bootstrap');
   if (existingBoot) existingBoot.remove();
 
-  // Inject bootstrap as a real script element so outerHTML captures it correctly
+  // Inject bootstrap as a real script element so outerHTML captures it correctly.
+  // IMPORTANT: the script executes immediately when appended to the live DOM.
+  // We guard against this by setting a flag before appending and checking it inside boot().
+  window._snapshotExportInProgress = true;
   const bootEl = document.createElement('script');
   bootEl.id = 'snapshot-data-bootstrap';
-  // Use text content so it won't be escaped
   bootEl.textContent = bootstrapScript
     .replace(/^\s*<script[^>]*>\s*/, '')
     .replace(/\s*<\/script>\s*$/, '');
@@ -2610,8 +2960,9 @@ function exportSnapshot() {
   // Now capture the full HTML with the injected script intact
   const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 
-  // Clean up — remove the injected element from the live page
+  // Clean up — remove the injected element from the live page and clear the flag
   bootEl.remove();
+  window._snapshotExportInProgress = false;
 
   // Download
   const blob = new Blob([snapshotHtml], {type: 'text/html'});
@@ -2642,7 +2993,7 @@ function exportReport() {
     for(const emp of state.prepCloseData) {
       for(const [type,label] of [['prep','Prep'],['close','Closing']]) {
         for(const c of emp[type].commitments) {
-          pcRows.push([emp.name, label, c.dow, c.total, c.worked, c.pct/100, c.recurring?'Yes':'No (one-time)', c.recurring?c.status.charAt(0).toUpperCase()+c.status.slice(1):'—']);
+          pcRows.push([emp.name, label, c.dow, c.total, c.worked, c.pctCredit/100, c.recurring?'Yes':'No (one-time)', c.recurring?c.status.charAt(0).toUpperCase()+c.status.slice(1):'—']);
         }
       }
     }
