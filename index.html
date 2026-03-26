@@ -2666,7 +2666,8 @@ function enrichTimesheetTimes() {
   // Runs after autoCorrectAfterTimesheetLoad so hasClock is fully resolved.
   const index = buildTimesheetIndex();
   if (!Object.keys(index).length) return;
-  const TOLERANCE = 15 * 60 * 1000;
+  const START_TOLERANCE = 90 * 60 * 1000; // 1.5 hours (90 mins) for late arrivals
+  const END_TOLERANCE = 15 * 60 * 1000;   // 15 mins for checkout variance
 
   for (const [nameKey, detail] of Object.entries(state.detailMap)) {
     const blocks = index[nameKey];
@@ -2677,7 +2678,7 @@ function enrichTimesheetTimes() {
       if (!win) continue;
       // Find the timesheet block that covers this shift
       const block = blocks.find(b =>
-        b.startMs <= win.startMs + TOLERANCE && b.endMs >= win.endMs - TOLERANCE
+                                b.startMs <= win.startMs + START_TOLERANCE && b.endMs >= win.endMs - END_TOLERANCE
       );
       if (block) {
         shift.actualClockInMs  = block.startMs;
