@@ -3006,6 +3006,10 @@ function exportSnapshot() {
   // IMPORTANT: the script executes immediately when appended to the live DOM.
   // We guard against this by setting a flag before appending and checking it inside boot().
   window._snapshotExportInProgress = true;
+  // Force any open modals closed before capturing so they don't appear on snapshot load
+  const modal = document.getElementById('github-push-modal');
+  const modalWasVisible = modal && modal.style.display !== 'none';
+  if (modal) modal.style.display = 'none';
   const bootEl = document.createElement('script');
   bootEl.id = 'snapshot-data-bootstrap';
   bootEl.textContent = bootstrapScript
@@ -3018,6 +3022,9 @@ function exportSnapshot() {
 
   // Clean up — remove the injected element from the live page and clear the flag
   bootEl.remove();
+  window._snapshotExportInProgress = false;
+  // Restore modal state
+  if (modal && modalWasVisible) modal.style.display = 'flex';
   window._snapshotExportInProgress = false;
 
   // Download
@@ -3406,6 +3413,9 @@ function generateFullManagerSnapshot(periodTag) {
   if (existingBoot) existingBoot.remove();
 
   window._snapshotExportInProgress = true;
+  const modal2 = document.getElementById('github-push-modal');
+  const modal2WasVisible = modal2 && modal2.style.display !== 'none';
+  if (modal2) modal2.style.display = 'none';
   const bootEl = document.createElement('script');
   bootEl.id = 'snapshot-data-bootstrap';
   bootEl.textContent = bootstrapScript
@@ -3415,6 +3425,7 @@ function generateFullManagerSnapshot(periodTag) {
   const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
   bootEl.remove();
   window._snapshotExportInProgress = false;
+  if (modal2 && modal2WasVisible) modal2.style.display = 'flex';
 
   return snapshotHtml;
 }
