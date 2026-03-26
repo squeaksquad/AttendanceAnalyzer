@@ -3241,9 +3241,42 @@ async function executePushToGitHub() {
     console.warn('Failed to update roster.json:', e);
   }
 
+  // Push full manager snapshot
+  statusEl.textContent = 'Generating full manager snapshot…';
+  try {
+    const snapshotFilename = `manager-snapshot-${periodTag}.html`;
+    const snapshotHtml = generateFullManagerSnapshot(periodTag);
+    const snapshotEncoded = btoa(unescape(encodeURIComponent(snapshotHtml)));
+    const existingSnapshotRes = await githubGet(token, owner, repo, `snapshots/${snapshotFilename}`);
+    const snapshotSha = existingSnapshotRes.ok ? (await existingSnapshotRes.json()).sha : undefined;
+    await githubPut(token, owner, repo, `snapshots/${snapshotFilename}`, {
+      message: `Update manager snapshot (${periodTag})`,
+      content: snapshotEncoded,
+      ...(snapshotSha ? { sha: snapshotSha } : {})
+    });
+    // Store the snapshot filename in roster.json for the dashboard to find
+    // Re-fetch roster sha (may have changed) and patch in the snapshot reference
+    try {
+      const freshRosterRes = await githubGet(token, owner, repo, 'roster.json');
+      if (freshRosterRes.ok) {
+        const freshRosterData = await freshRosterRes.json();
+        const freshContent = JSON.parse(atob(freshRosterData.content.replace(/\n/g,'')));
+        freshContent.managerSnapshot = snapshotFilename;
+        const patchedContent = btoa(unescape(encodeURIComponent(JSON.stringify(freshContent, null, 2) + '\n')));
+        await githubPut(token, owner, repo, 'roster.json', {
+          message: `Add manager snapshot reference (${periodTag})`,
+          content: patchedContent,
+          sha: freshRosterData.sha
+        });
+      }
+    } catch(e) { console.warn('Failed to patch roster with snapshot ref:', e); }
+  } catch(e) {
+    console.warn('Failed to push manager snapshot:', e);
+  }
+
   const summary = failed > 0
-    ? `Done! ${done - failed} uploaded, ${failed} skipped (missing email). Roster updated.`
-    : `Done! All ${done} worker files uploaded and roster updated. ✓`;
+    ? `Done! ${done - failed} uploaded, ${failed} skipped (missing email). Roster + snapshot updated.`
+    : `Done! All ${done} worker files + manager snapshot uploaded. ✓`;
   statusEl.textContent = summary;
   btn.disabled = false;
   btn.textContent = '✓ Push again';
@@ -3270,6 +3303,120 @@ function githubPut(token, owner, repo, path, body) {
     },
     body: JSON.stringify(body)
   });
+}
+
+function generateFullManagerSnapshot(periodTag) {
+  // Reuse the same logic as exportSnapshot() but return the HTML string
+  // instead of triggering a download. This produces a fully self-contained
+  // analyzer snapshot with all data embedded, suitable for manager portal use.
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const fromStr = (fromEl && fromEl.value) ? fromEl.value : '';
+  const toStr   = (toEl   && toEl.value)   ? toEl.value   : '';
+
+  const snapshotData = {
+    absences:  state.absences  || [],
+    clockin:   state.clockin   || [],
+    shifts:    state.shifts    || [],
+    absences2: state.absences2 || [],
+    timesheets: state.timesheets || [],
+    timesheets2: state.timesheets2 || [],
+    clockin2:  state.clockin2  || [],
+    shifts2:   state.shifts2   || [],
+    dateFrom:  fromStr,
+    dateTo:    toStr,
+    manualClosures: [...state.manualClosures],
+    overrides: [...state.overrides]
+  };
+
+  const bootstrapScript = `
+<script id="snapshot-data-bootstrap">
+(function() {
+  var d = ${JSON.stringify(snapshotData)};
+  function boot() {
+    if (window._snapshotExportInProgress) return;
+    if (typeof state === 'undefined' || typeof analyze === 'undefined' || typeof checkReady === 'undefined') {
+      return setTimeout(boot, 30);
+    }
+    state.absences  = d.absences;
+    state.clockin   = d.clockin;
+    state.shifts    = d.shifts;
+    state.absences2 = d.absences2 || [];
+    state.timesheets = d.timesheets || [];
+    state.timesheets2 = d.timesheets2 || [];
+    state.clockin2  = d.clockin2  || [];
+    state.shifts2   = d.shifts2   || [];
+    if (d.manualClosures && d.manualClosures.length) state.manualClosures = new Set(d.manualClosures);
+    var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+    var fromEl = document.getElementById('filter-date-from');
+    var toEl   = document.getElementById('filter-date-to');
+    if (fromEl && d.dateFrom) fromEl.value = d.dateFrom;
+    if (toEl   && d.dateTo)   toEl.value   = d.dateTo;
+    var zoneMap = {absences:'absences', clockin:'clockin', shifts:'shifts',
+                   absences2:'absences2', clockin2:'clockin2', shifts2:'shifts2'};
+    Object.keys(zoneMap).forEach(function(key) {
+      var arr = state[key];
+      var suffix = key.endsWith('2') ? '2' : '';
+      var base   = key.replace('2','');
+      var zEl  = document.getElementById('zone-' + base + suffix);
+      var sEl  = document.getElementById('status-' + base + suffix);
+      if (zEl && sEl && arr && arr.length) {
+        zEl.classList.add('loaded');
+        sEl.className   = 'zone-status ok';
+        sEl.textContent = '\\u2713 ' + arr.length + ' rows loaded';
+      }
+    });
+    document.getElementById('run-btn').disabled      = false;
+    document.getElementById('export-btn').disabled   = false;
+    document.getElementById('snapshot-btn').disabled = false;
+    document.getElementById('correct-btn').disabled  = false;
+    document.getElementById('worker-pdf-btn').disabled = false;
+    document.getElementById('bulk-pdf-btn').disabled   = false;
+    document.getElementById('github-push-btn').disabled = false;
+    populateWorkerDropdown();
+    if (typeof onDateFilterChange === 'function') onDateFilterChange();
+    analyze();
+    if (pendingOverrides.length && typeof markWorked === 'function') {
+      pendingOverrides.forEach(function(sKey) {
+        var parts = sKey.split('|');
+        if (parts.length >= 2) {
+          var nameKey = parts[0];
+          if (!state.overrides.has(sKey)) {
+            state.overrides.add(sKey);
+            var d2 = state.detailMap[nameKey];
+            if (d2) {
+              var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
+              if (entry) entry.hasClock = true;
+            }
+          }
+        }
+      });
+      var affectedKeys = new Set(pendingOverrides.map(function(k){ return k.split('|')[0]; }));
+      affectedKeys.forEach(function(k){ if (typeof recomputeEmployee === 'function') recomputeEmployee(k); });
+      if (typeof renderAttRows === 'function') renderAttRows();
+      if (typeof refreshAttStats === 'function') refreshAttStats();
+    }
+  }
+  boot();
+})();
+<\/script>`;
+
+  // Remove any existing bootstrap from the live DOM, inject temporarily to capture outerHTML
+  const existingBoot = document.getElementById('snapshot-data-bootstrap');
+  if (existingBoot) existingBoot.remove();
+
+  window._snapshotExportInProgress = true;
+  const bootEl = document.createElement('script');
+  bootEl.id = 'snapshot-data-bootstrap';
+  bootEl.textContent = bootstrapScript
+    .replace(/^\s*<script[^>]*>\s*/, '')
+    .replace(/\s*<\/script>\s*$/, '');
+  document.body.appendChild(bootEl);
+  const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  bootEl.remove();
+  window._snapshotExportInProgress = false;
+
+  return snapshotHtml;
 }
 
 function generateWorkerSnapshot(nameKey, result, periodTag) {
