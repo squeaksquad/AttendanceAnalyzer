@@ -2681,11 +2681,19 @@ function enrichTimesheetTimes() {
                                 b.startMs <= win.startMs + START_TOLERANCE && b.endMs >= win.endMs - END_TOLERANCE
       );
       if (block) {
-        shift.actualClockInMs  = block.startMs;
-        shift.scheduledStartMs = win.startMs;
-        // lateMinutes: positive = late, negative = early
-        shift.lateMinutes = Math.round((block.startMs - win.startMs) / 60000);
-      }
+              shift.actualClockInMs  = block.startMs;
+              shift.scheduledStartMs = win.startMs;
+              
+              let calculatedLate = Math.round((block.startMs - win.startMs) / 60000);
+              
+              // If they clocked in more than 60 mins early, it's a consecutive shift.
+              // They were already on the clock, so they are exactly "on time" (0 mins late) for this shift.
+              if (calculatedLate < -60) {
+                calculatedLate = 0;
+              }
+              
+              shift.lateMinutes = calculatedLate;
+            }
     }
   }
 }
