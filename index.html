@@ -735,6 +735,27 @@ function fmtDate(v) {
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+const LATE_THRESHOLD_MINUTES = 10; // flag as late if > this many minutes after scheduled start
+
+function fmtActualClockIn(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const h = d.getHours(), m = d.getMinutes();
+  const ampm = h < 12 ? 'am' : 'pm';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2,'0')}${ampm}`;
+}
+
+function fmtLateMinutes(lateMinutes) {
+  if (lateMinutes === undefined || lateMinutes === null) return '';
+  const abs = Math.abs(lateMinutes);
+  const h = Math.floor(abs / 60), m = abs % 60;
+  const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+  if (lateMinutes > LATE_THRESHOLD_MINUTES)  return { label: `+${timeStr}`, type: 'late' };
+  if (lateMinutes < -2) return { label: `-${timeStr}`, type: 'early' }; // ignore <2m early (noise)
+  return { label: 'on time', type: 'ontime' };
+}
+
 // ── Core analysis ─────────────────────────────────────────────────────────────
 function updateDateRangePill(rawShifts) {
   const pill = document.getElementById('date-range-pill');
@@ -891,6 +912,16 @@ function _analyzeInner() {
         for (const s of built.rawShifts) {
           const k = `${s.nameKey}|${s.date}|${s.startH}|${s.startM}`;
           if (correctedKeys.has(k)) s.hasClock = true;
+        }
+      }
+      // Enrich all clocked shifts with exact clock-in times + lateness deltas
+      enrichTimesheetTimes();
+      // Now recompute lateCount/avgLateMinutes for every employee — enrichTimesheetTimes
+      // stamps lateMinutes on shifts, but recomputeEmployee() was called earlier (during
+      // autocorrection) before those values existed. One more pass fixes all lateness stats.
+      if (state.results) {
+        for (const r of state.results) {
+          recomputeEmployee(normName(r.name));
         }
       }
     }
@@ -1081,7 +1112,7 @@ function buildResults() {
     const totalAssigned=e.assigned+e.picked_up+coveredPenalty;
     const worked=Math.max(0,(e.assigned-e.no_timeclock)+e.picked_up);
     const pct=totalAssigned>0?Math.round((worked/totalAssigned)*100):null;
-    return {...e, worked, total_assigned:totalAssigned, pct};
+    return {...e, worked, total_assigned:totalAssigned, pct, lateCount:0, avgLateMinutes:0};
   }).sort((a,b)=>a.name.localeCompare(b.name));
 
   // Capture merged shifts before restoring (needed for P&C drop detection)
@@ -1451,6 +1482,7 @@ function renderAttendance() {
             <th colspan="4" class="g-attendance sep-left">Attendance</th>
             <th colspan="2" class="g-absences sep-left">Absences</th>
             <th colspan="4" class="g-drops sep-left">Shift Drops</th>
+            <th colspan="2" class="sep-left" style="color:#7c3aed">Lateness</th>
           </tr>
           <tr class="col-row">
             <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
@@ -1465,6 +1497,8 @@ function renderAttendance() {
             <th onclick="attSort('covered')">Filled by Someone</th>
             <th onclick="attSort('uncovered')">Left Open</th>
             <th onclick="attSort('picked_up')">Covered for Others</th>
+            <th class="sep-left" onclick="attSort('lateCount')" style="color:#7c3aed">Late Shifts</th>
+            <th onclick="attSort('avgLateMinutes')" style="color:#7c3aed">Avg Late</th>
           </tr>
         </thead>
         <tbody id="att-tbody"></tbody>
@@ -1501,6 +1535,10 @@ function recomputeEmployee(nameKey) {
   r.worked       = d.clockin.filter(s => s.hasClock).length + r.picked_up;
   r.no_timeclock = d.clockin.filter(s => !s.hasClock).length;
   r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
+  // Lateness stats (only from shifts with timesheet data)
+  const lateShifts = d.clockin.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
+  r.lateCount = lateShifts.length;
+  r.avgLateMinutes = lateShifts.length > 0 ? Math.round(lateShifts.reduce((sum, s) => sum + s.lateMinutes, 0) / lateShifts.length) : 0;
 }
 
 function refreshAttStats() {
@@ -1525,6 +1563,14 @@ function renderAttRows() {
     const pct=r.pct;
     const pctCls=pct===null?'':pct>=90?'c-ok':pct>=80?'c-warn':'c-red';
     const flagged=pct!==null&&pct<80;
+    // Lateness cells — only show if timesheet data was loaded (lateCount will be set)
+    const hasTimesheetData = r.lateCount !== undefined;
+    const lateCell = !hasTimesheetData
+      ? '<td class="num zero sep-left">—</td><td class="num zero">—</td>'
+      : r.lateCount === 0
+        ? '<td class="num zero sep-left">—</td><td class="num zero">—</td>'
+        : `<td class="num sep-left" style="color:#7c3aed;font-weight:700">${r.lateCount}</td>`
+          + `<td class="num" style="color:#7c3aed">+${r.avgLateMinutes}m</td>`;
     return `<tr class="summary-row${flagged?' flagged':''}${isOpen?' open':''}" onclick="toggleAttDetail('${key}')">
       <td class="expand-arrow">${isOpen?'▼':'▶'}</td>
       <td class="name-cell">${esc(r.name)}${flagged?'<span class="flag-badge">At Risk</span>':''}</td>
@@ -1535,7 +1581,8 @@ function renderAttRows() {
       ${num(r.dropped,'sep-left')}${num(r.covered)}
       <td class="num${r.uncovered>0?' c-red':' zero'}">${r.uncovered>0?r.uncovered:'—'}</td>
       ${num(r.picked_up)}
-    </tr>${isOpen?`<tr class="detail-row"><td colspan="12">${buildAttDetail(key,r)}</td></tr>`:''}`;
+      ${lateCell}
+    </tr>${isOpen?`<tr class="detail-row"><td colspan="14">${buildAttDetail(key,r)}</td></tr>`:''}`;
   }).join('');
 }
 
@@ -1610,8 +1657,18 @@ function buildAttDetail(key,r) {
       btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
     }
     const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
+    // Lateness info — only when timesheet data available
+    let lateHtml = '';
+    if (s.hasClock && s.actualClockInMs !== undefined) {
+      const actualStr = fmtActualClockIn(s.actualClockInMs);
+      const lateInfo  = fmtLateMinutes(s.lateMinutes);
+      const lateColor = lateInfo.type === 'late' ? '#7c3aed' : lateInfo.type === 'early' ? '#16a34a' : '#9ca3af';
+      const lateBg    = lateInfo.type === 'late' ? '#f5f3ff' : lateInfo.type === 'early' ? '#f0fdf4' : 'transparent';
+      lateHtml = `<span style="font-size:10px;color:#9ca3af;margin-left:8px">clocked in ${actualStr}</span>`
+               + `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;background:${lateBg};color:${lateColor}">${lateInfo.label}</span>`;
+    }
     return `<div class="detail-item${hasAbsence?' has-absence':''}">
-      <div class="di-date">${esc(s.date)} ${badge}${btn}${absBadge}</div>
+      <div class="di-date">${esc(s.date)} ${badge}${btn}${absBadge}${lateHtml}</div>
       <div class="di-meta">${[s.time,s.length,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.notes?`<div class="di-note">${esc(s.notes)}</div>`:''}
     </div>`;
@@ -2187,6 +2244,8 @@ async function exportWorkerPDF(nameKey, returnBlob) {
     ['Staff-Marked Absences',  result.abs_staff, result.abs_staff > 0 ? C.redBg : null],
     ['Shifts Dropped',  result.dropped,         result.dropped > 0 ? C.amberBg : null],
     ['Uncovered Drops', result.uncovered,       result.uncovered > 0 ? C.redBg : null],
+    ['Late Clock-Ins\n(>10 min)', result.lateCount || 0, (result.lateCount || 0) > 0 ? [245,243,255] : null],
+    ['Avg Lateness', result.lateCount > 0 ? `+${result.avgLateMinutes}m` : '—', null],
   ];
   const cardW = (CW - 12) / 4;
   const cardH = 54;
@@ -2231,14 +2290,14 @@ async function exportWorkerPDF(nameKey, returnBlob) {
   }
   const shifts = [...detail.clockin].sort((a,b) => shiftSortKey2(a)-shiftSortKey2(b));
 
-  const colW = [82, 100, 55, 90, CW-82-100-55-90-8];
+  const colW = [82, 95, 45, 80, 70, CW-82-95-45-80-70-8];
   const rowH = 20;
   // Header row
   checkY(rowH+4);
   doc.setFillColor(241,245,249);
   doc.rect(ML, y, CW, rowH, 'F');
   doc.setFontSize(8); doc.setFont(undefined,'bold'); doc.setTextColor(...C.muted);
-  ['Date','Time','Hours','Location','Status'].forEach((h,i) => {
+  ['Date','Time','Hrs','Location','Status','Clock-In / Late'].forEach((h,i) => {
     doc.text(h, ML + colW.slice(0,i).reduce((a,b)=>a+b,0) + 4, y+13);
   });
   y += rowH;
@@ -2267,14 +2326,26 @@ async function exportWorkerPDF(nameKey, returnBlob) {
     doc.text(s.time||'', x+4, y+13); x += colW[1];
     doc.text(s.length||'', x+4, y+13); x += colW[2];
     const siteTxt = [s.site, s.position].filter(Boolean).join(' · ');
-    doc.text(siteTxt.length > 22 ? siteTxt.slice(0,21)+'…' : siteTxt, x+4, y+13); x += colW[3];
+    doc.text(siteTxt.length > 18 ? siteTxt.slice(0,17)+'…' : siteTxt, x+4, y+13); x += colW[3];
 
     // Status pill
-    const pillW = 80;
+    const pillW = 66;
     doc.setFillColor(...statusBg);
     doc.roundedRect(x+2, y+4, pillW, 12, 3, 3, 'F');
     doc.setFontSize(7.5); doc.setFont(undefined,'bold'); doc.setTextColor(...statusFg);
     doc.text(statusTxt, x+2+pillW/2, y+13, {align:'center'});
+    x += colW[4];
+
+    // Actual clock-in time + lateness
+    if (s.hasClock && s.actualClockInMs !== undefined) {
+      const actualStr = fmtActualClockIn(s.actualClockInMs);
+      const lateInfo  = fmtLateMinutes(s.lateMinutes);
+      const lateColor = lateInfo.type === 'late' ? C.purple : lateInfo.type === 'early' ? C.green : C.muted;
+      doc.setFontSize(8); doc.setFont(undefined,'normal'); doc.setTextColor(...C.muted);
+      doc.text(actualStr, x+4, y+10);
+      doc.setFontSize(7.5); doc.setFont(undefined,'bold'); doc.setTextColor(...lateColor);
+      doc.text(lateInfo.label, x+4, y+18);
+    }
 
     if (s.notes) {
       y += rowH;
@@ -2585,6 +2656,35 @@ function autoCorrectAfterTimesheetLoad() {
       btn.style.background = '#dbeafe';
       btn.style.borderColor = '#60a5fa';
       btn.style.color = '#1e40af';
+    }
+  }
+}
+
+function enrichTimesheetTimes() {
+  // Stamp actualClockInMs on every clocked shift (worked or auto-corrected)
+  // so we can show exact clock-in times and compute lateness deltas.
+  // Runs after autoCorrectAfterTimesheetLoad so hasClock is fully resolved.
+  const index = buildTimesheetIndex();
+  if (!Object.keys(index).length) return;
+  const TOLERANCE = 15 * 60 * 1000;
+
+  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+    const blocks = index[nameKey];
+    if (!blocks) continue;
+    for (const shift of detail.clockin) {
+      if (!shift.hasClock) continue; // only enrich clocked shifts
+      const win = shiftWindowMs(shift);
+      if (!win) continue;
+      // Find the timesheet block that covers this shift
+      const block = blocks.find(b =>
+        b.startMs <= win.startMs + TOLERANCE && b.endMs >= win.endMs - TOLERANCE
+      );
+      if (block) {
+        shift.actualClockInMs  = block.startMs;
+        shift.scheduledStartMs = win.startMs;
+        // lateMinutes: positive = late, negative = early
+        shift.lateMinutes = Math.round((block.startMs - win.startMs) / 60000);
+      }
     }
   }
 }
@@ -3467,12 +3567,27 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
     else if (s.hasClock && isAuto) { statusTxt='Auto-Corrected';  statusColor='#1d4ed8'; statusBg='#dbeafe'; }
     else if (s.hasClock)           { statusTxt='Clocked In';      statusColor='#15803d'; statusBg='#dcfce7'; }
     else                           { statusTxt='No Clock-In';     statusColor='#92400e'; statusBg='#fef3c7'; }
+    // Lateness info
+    let lateCell = '';
+    if (s.hasClock && s.actualClockInMs !== undefined) {
+      const actualStr = fmtActualClockIn(s.actualClockInMs);
+      const lateInfo  = fmtLateMinutes(s.lateMinutes);
+      const lColor = lateInfo.type === 'late' ? '#7c3aed' : lateInfo.type === 'early' ? '#15803d' : '#9ca3af';
+      const lBg    = lateInfo.type === 'late' ? '#f5f3ff' : 'transparent';
+      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;font-size:12px">
+        <span style="color:#9ca3af">${actualStr}</span>
+        <span style="margin-left:8px;font-weight:600;font-size:11px;padding:1px 6px;border-radius:3px;background:${lBg};color:${lColor}">${lateInfo.label}</span>
+      </td>`;
+    } else {
+      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;color:#d1d5db;font-size:12px">—</td>`;
+    }
     return `<tr>
       <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap">${esc(s.date)}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;color:#6b7280">${esc(s.time)}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6">
         <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${statusBg};color:${statusColor}">${statusTxt}</span>
       </td>
+      ${lateCell}
     </tr>`;
   }).join('');
 
@@ -3588,10 +3703,11 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
   <div class="stat"><div class="val" style="color:${result.no_timeclock>0?'#d97706':'#111'}">${result.no_timeclock}</div><div class="lbl">No Clock-In</div></div>
   <div class="stat"><div class="val">${result.abs_self + result.abs_staff}</div><div class="lbl">Absences</div></div>
   <div class="stat"><div class="val">${result.dropped}</div><div class="lbl">Shifts Dropped</div></div>
+  ${(result.lateCount||0) > 0 ? `<div class="stat"><div class="val" style="color:#7c3aed">${result.lateCount}</div><div class="lbl">Late Clock-Ins</div></div>` : ''}
 </div>
 <div class="section">
   <h2>Shift History (${clockinSorted.length})</h2>
-  ${clockinSorted.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>${shiftRows}</tbody></table>` : '<p style="color:#aaa;font-style:italic;font-size:13px">No shift history.</p>'}
+  ${clockinSorted.length ? `<table><thead><tr><th>Date</th><th>Scheduled</th><th>Status</th><th>Clocked In</th></tr></thead><tbody>${shiftRows}</tbody></table>` : '<p style="color:#aaa;font-style:italic;font-size:13px">No shift history.</p>'}
 </div>
 <div class="section">
   <h2>Absences (${detail.absences.length})</h2>
