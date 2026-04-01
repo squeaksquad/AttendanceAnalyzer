@@ -179,6 +179,11 @@ tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px sol
 .mark-btn:hover { border-color: #6d28d9; color: #6d28d9; background: #faf5ff; }
 .mark-btn.undo { border-color: #d1d5db; color: #9ca3af; background: #f9fafb; }
 .mark-btn.undo:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+.omit-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #e5e7eb; background: #f9fafb; color: #9ca3af; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
+.omit-btn:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+.omit-btn.omitted { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
+.omit-btn.omitted:hover { border-color: #6b7280; color: #6b7280; background: #f9fafb; }
+.detail-item.omitted-shift { opacity: 0.45; }
 .detail-item.has-absence { border-color: #f59e0b; background: #fffbeb; }
 .detail-item.has-absence .di-date { color: #92400e; }
 .absence-overlap-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
@@ -431,6 +436,7 @@ const state = {
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview', adjustForStartDate:true },
   overrides: new Set(),        // shift keys manually marked as worked
+  omissions: new Set(),        // shift keys omitted from counts + history
   autocorrections: new Set(),  // shift keys auto-corrected by discrepancy fixer
   strictDrops: true,           // if true, covered drops also count against attendance
   inferredClosures: new Set(), // auto-detected college-closed dates (YYYY-MM-DD)
@@ -713,7 +719,22 @@ function parseUniversal(val) {
         return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
     }
 
-    // 5. Fallback Default
+    // 5. "Mon DD, YYYY" string (e.g. "Mar 26, 2026" from Absences export)
+    // Must be handled before the fallback: new Date("Mar 26, 2026") parses as
+    // UTC midnight, and applyOffset() would shift it back a day in EDT/EST,
+    // corrupting the date stored on absence records.
+    const monDDYYYY = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (monDDYYYY) {
+        const MONTH_MAP = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+        const mo5 = MONTH_MAP[monDDYYYY[1].toLowerCase()];
+        const d5  = parseInt(monDDYYYY[2], 10);
+        const y5  = parseInt(monDDYYYY[3], 10);
+        if (mo5 !== undefined) {
+            return { h:0, m:0, y:y5, mo:mo5, d:d5, dow: DAYS[new Date(y5, mo5, d5).getDay()], isDateOnly:true };
+        }
+    }
+
+    // 6. Fallback Default
     const dt = new Date(s);
     if (!isNaN(dt.getTime())) {
         return { h: dt.getHours(), m: dt.getMinutes(), y: dt.getFullYear(), mo: dt.getMonth(), d: dt.getDate(), dow: DAYS[dt.getDay()] };
@@ -823,6 +844,7 @@ function analyze() {
 function _analyzeInner() {
   // Reset auto-corrections so they get re-applied fresh after each analysis
   state.autocorrections = new Set();
+  state.omissions = new Set();
   updateCorrectionCount();
   const correctBtn = document.getElementById('correct-btn');
   if (correctBtn) {
@@ -856,6 +878,7 @@ function _analyzeInner() {
     }
 
     // ── Main pass: buildResults now runs with date filter correctly applied ──
+    state.omissions = new Set(); // reset before main pass — probe pass above may have populated it
     const built = buildResults();
     state.results   = built.results;
     state.detailMap = built.detailMap;
@@ -863,6 +886,9 @@ function _analyzeInner() {
     state.pc.openRows.clear();
     state.shiftFilter = {};
     updateDateRangePill(built.rawShifts);
+
+    // Recompute all employees so auto-omitted duplicates are excluded from counts
+    for (const r of state.results) recomputeEmployee(normName(r.name));
 
     // ── Step 2: Resolve date range (now inputs are populated) ─────────────
     let rangeFrom = null, rangeTo = null;
@@ -1049,7 +1075,10 @@ function buildResults() {
           hasClock, site:row['Job Site Name']||'',
           position:row['Position Name']||'',
           notes:row['Shift Notes']||'',
-          length:row['sum(Length)']||0
+          length:row['sum(Length)']||0,
+          time:timeRange,
+          createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
+                   : row['Created At'] ? new Date(row['Created At']).getTime() : 0
         });
 
         e.assigned++;
@@ -1105,6 +1134,60 @@ function buildResults() {
       // Covered/accepted drops: WhenIWork removes these from Shifts Worked entirely.
       // They don't count against dropper's attendance per policy, so no action needed.
       detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'' });
+    }
+  }
+
+  // ── Auto-omit duplicate shifts ────────────────────────────────────────────
+  // Detect shifts with identical nameKey+date+startTime. For each duplicate
+  // group: keep the one with a matching absence on file; if none match, keep
+  // the most recently created. Omit the rest via state.omissions (oKey format).
+  {
+    // Build absence lookup: "nameKey|date|startMinutes" → true
+    const absenceStartKeys = new Set();
+    for (const nameKey of Object.keys(detail)) {
+      for (const a of detail[nameKey].absences) {
+        const mins = (() => {
+          const t = (a.time||'').split('–')[0].trim();
+          const m = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+          if (!m) return null;
+          let h = parseInt(m[1]), min = m[2] ? parseInt(m[2]) : 0;
+          if (m[3].toLowerCase()==='pm' && h<12) h+=12;
+          if (m[3].toLowerCase()==='am' && h===12) h=0;
+          return h*60+min;
+        })();
+        if (mins !== null) absenceStartKeys.add(`${nameKey}|${a.date}|${mins}`);
+      }
+    }
+
+    // Group rawShifts by nameKey|date|startMinutes
+    const groups = {};
+    for (const s of rawShifts) {
+      if (s.startH < 0) continue; // no time data
+      const groupKey = `${s.nameKey}|${s.date}|${s.startH*60+s.startM}`;
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(s);
+    }
+
+    for (const [groupKey, members] of Object.entries(groups)) {
+      if (members.length < 2) continue;
+
+      // Determine which to keep
+      let keeper = null;
+
+      // Priority 1: has matching absence
+      keeper = members.find(s => absenceStartKeys.has(groupKey));
+
+      // Priority 2: most recently created
+      if (!keeper) {
+        keeper = members.reduce((best, s) => s.createdAt > best.createdAt ? s : best, members[0]);
+      }
+
+      // Omit the rest
+      for (const s of members) {
+        if (s === keeper) continue;
+        const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
+        state.omissions.add(oKey);
+      }
     }
   }
 
@@ -1528,18 +1611,42 @@ function markWorked(shiftKey, nameKey) {
   refreshAttStats();
 }
 
+// ── Shift omissions (exclude from counts + history) ───────────────────────────
+function omitShift(shiftKey, nameKey) {
+  const already = state.omissions.has(shiftKey);
+  if (already) state.omissions.delete(shiftKey);
+  else         state.omissions.add(shiftKey);
+
+  // If omitting, also undo any manual override on this shift.
+  // oKey format is "nameKey|date|time|site"; overrides use "nameKey|date|time"
+  const overrideKey = shiftKey.split('|').slice(0, 3).join('|');
+  if (!already && state.overrides.has(overrideKey)) {
+    state.overrides.delete(overrideKey);
+    const d = state.detailMap[nameKey];
+    if (d) {
+      const entry = d.clockin.find(s => overrideKey === `${nameKey}|${s.date}|${s.time}`);
+      if (entry) entry.hasClock = false;
+    }
+  }
+
+  recomputeEmployee(nameKey);
+  renderAttRows();
+  refreshAttStats();
+}
+
 function recomputeEmployee(nameKey) {
   const r = state.results.find(x => normName(x.name) === nameKey);
   if (!r) return;
   const d = state.detailMap[nameKey];
   if (!d) return;
   const coveredPenalty2 = state.strictDrops ? r.covered : 0;
-  r.total_assigned = (r.assigned || 0) + (r.picked_up || 0) + coveredPenalty2;
-  r.worked       = d.clockin.filter(s => s.hasClock).length + r.picked_up;
-  r.no_timeclock = d.clockin.filter(s => !s.hasClock).length;
+  const activeShifts = d.clockin.filter(s => !state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`));
+  r.total_assigned = activeShifts.length + (r.picked_up || 0) + coveredPenalty2;
+  r.worked       = activeShifts.filter(s => s.hasClock).length + r.picked_up;
+  r.no_timeclock = activeShifts.filter(s => !s.hasClock).length;
   r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
   // Lateness stats (only from shifts with timesheet data)
-  const lateShifts = d.clockin.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
+  const lateShifts = activeShifts.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
   r.lateCount = lateShifts.length;
   r.avgLateMinutes = lateShifts.length > 0 ? Math.round(lateShifts.reduce((sum, s) => sum + s.lateMinutes, 0) / lateShifts.length) : 0;
 }
@@ -1644,14 +1751,31 @@ function buildAttDetail(key,r) {
   let shifts = [...d.shifts].sort((a,b) => dateSortKey(a.date) - dateSortKey(b.date));
   if (reqNewest) shifts = [...shifts].reverse();
 
-  // Build a set of dates that have an absence entry, for quick lookup
-  const absenceDates = new Set(d.absences.map(a => a.date));
+  // Build a set of "date|startMinutes" keys for absence entries.
+  // Matches on date + shift start time so only the specific absent shift
+  // gets the badge, not every no-clock-in shift on the same day.
+  function timeStrToMinutes(t) {
+    if (!t) return null;
+    const start = t.split('–')[0].trim(); // take start side of "7:30am – 11am"
+    const m = start.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+    if (!m) return null;
+    let h = parseInt(m[1], 10), min = m[2] ? parseInt(m[2], 10) : 0;
+    const ampm = m[3].toLowerCase();
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+    return h * 60 + min;
+  }
+  const absenceKeys = new Set(
+    d.absences.map(a => `${a.date}|${timeStrToMinutes(a.time)}`)
+  );
 
   const clockHtml=!clockin.length?`<p class="detail-empty">${showOnlyNoClockActive?'No unclocked shifts':showOnlyLateActive?'No late shifts':'No shift data'}</p>`:clockin.map(s=>{
     const sKey=`${key}|${s.date}|${s.time}`;
+    const oKey=`${key}|${s.date}|${s.time}|${s.site}`;  // site-qualified — avoids collision on duplicate time slots
     const isManual = state.overrides.has(sKey);
     const isAuto   = state.autocorrections && state.autocorrections.has(sKey);
-    const hasAbsence = !s.hasClock && absenceDates.has(s.date);
+    const isOmitted = state.omissions.has(oKey);
+    const hasAbsence = !s.hasClock && absenceKeys.has(`${s.date}|${timeStrToMinutes(s.time)}`);
     let badge, btn='';
     if (s.hasClock && isManual) {
       badge = '<span class="di-badge manual">Manually Marked</span>';
@@ -1665,6 +1789,7 @@ function buildAttDetail(key,r) {
       badge = '<span class="di-badge noclock">No Clock-In</span>';
       btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
     }
+    const omitBtn = `<button class="omit-btn${isOmitted?' omitted':''}" title="${isOmitted?'Restore shift to counts':'Omit shift from counts'}" onclick="event.stopPropagation();omitShift('${oKey.replace(/'/g,"\\'")}','${key}')">${isOmitted?'↩ Restore':'✕ Omit'}</button>`;
     const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
     // Lateness info — only when timesheet data available
     let lateHtml = '';
@@ -1676,8 +1801,8 @@ function buildAttDetail(key,r) {
       lateHtml = `<span style="font-size:10px;color:#9ca3af;margin-left:8px">clocked in ${actualStr}</span>`
                + `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;background:${lateBg};color:${lateColor}">${lateInfo.label}</span>`;
     }
-    return `<div class="detail-item${hasAbsence?' has-absence':''}">
-      <div class="di-date">${esc(s.date)} ${badge}${btn}${absBadge}${lateHtml}</div>
+    return `<div class="detail-item${hasAbsence&&!isOmitted?' has-absence':''}${isOmitted?' omitted-shift':''}">
+      <div class="di-date">${esc(s.date)} ${badge}${btn}${omitBtn}${absBadge}${lateHtml}</div>
       <div class="di-meta">${[s.time,s.length,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.notes?`<div class="di-note">${esc(s.notes)}</div>`:''}
     </div>`;
