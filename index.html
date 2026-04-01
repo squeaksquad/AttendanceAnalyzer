@@ -1376,7 +1376,11 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
           uniqueShifts.push(clocked || dayShifts[0]);
         }
         byEmpType[empKey][bucket][dow] = uniqueShifts.sort((a, b) => {
-          if (a.rawDate && b.rawDate) return a.rawDate.d - b.rawDate.d;
+          if (a.rawDate && b.rawDate) {
+            const aMs = Date.UTC(a.rawDate.y, a.rawDate.mo, a.rawDate.d);
+            const bMs = Date.UTC(b.rawDate.y, b.rawDate.mo, b.rawDate.d);
+            return aMs - bMs;
+          }
           return 0;
         });
       }
@@ -1460,16 +1464,21 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
 
     const commitments = [];
     let totalAll = 0, workedAll = 0;
+    let extraWorked = 0; // worked shifts on non-recurring DOWs that supplement the bucket total
     for (const dow of DAYS) {
       if (!dowMap[dow]) continue;
       const shifts    = dowMap[dow];
-      const total     = shifts.length;
+
+      // Penalty-free missed shifts: exclude from denominators but keep worked shifts in numerator
+      const pfdMissed = shifts.filter(s => !s.hasClock && isPFD(s.date)).length;
+
+      const total     = shifts.length - pfdMissed;
       const worked    = shifts.filter(s => s.hasClock).length;
 
       // Recurring = at least 2 occurrences AND >= 33% of available slots for this DOW.
       // The minimum-2 rule prevents a single recorded shift from being treated as a
       // weekly commitment (important for new hires with limited data).
-      const available = empDowAvail[dow] || (totalWeeks || 4);
+      const available = Math.max(1, (empDowAvail[dow] || (totalWeeks || 4)) - pfdMissed);
       const recurring = total >= 2 && total >= available * 0.33;
 
       // pct for display = worked out of shifts we have records for
@@ -1481,12 +1490,19 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
       let status = 'once';
       if (recurring) { status = pctCredit >= 80 ? 'met' : pctCredit >= 50 ? 'partial' : 'missed'; }
 
-      commitments.push({ dow, total, worked, available, pct: pctDisplay, pctCredit, recurring, status, shifts });
+      commitments.push({ dow, total, worked, available, pfdMissed, pct: pctDisplay, pctCredit, recurring, status, shifts });
 
       if (recurring) { totalAll += available; workedAll += worked; }
+      else           { extraWorked += worked; } // non-recurring worked shifts supplement bucket credit
     }
-    const overallPct = totalAll > 0 ? Math.round((workedAll / totalAll) * 100) : null;
-    return { commitments, totalAll, workedAll, overallPct };
+    // Bucket-level credit: non-recurring worked shifts pad the numerator but not the denominator.
+    // This means someone who picks up extra shifts on off-days can still earn full credit.
+    const bucketWorked = Math.min(workedAll + extraWorked, totalAll); // cap at 100% — can't exceed denominator
+    const overallPct = totalAll > 0 ? Math.round((bucketWorked / totalAll) * 100) : null;
+    // Bucket-level status drives the summary row and met/partial/missed rollup
+    const bucketStatus = overallPct === null ? null
+      : overallPct >= 80 ? 'met' : overallPct >= 50 ? 'partial' : 'missed';
+    return { commitments, totalAll, workedAll: bucketWorked, extraWorked, overallPct, bucketStatus };
   };
 
   // Build a map of nameKey -> empRow for employees with P&C data
@@ -1500,11 +1516,10 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
     const hasPrep  = prep.commitments.length  > 0;
     const hasClose = close.commitments.length > 0;
 
-    const allStatuses = [...prep.commitments, ...close.commitments]
-      .filter(c => c.recurring).map(c => c.status);
+    const allBucketStatuses = [prep.bucketStatus, close.bucketStatus].filter(Boolean);
     let overallStatus = 'ok';
-    if (allStatuses.includes('missed'))       overallStatus = 'missed';
-    else if (allStatuses.includes('partial')) overallStatus = 'partial';
+    if (allBucketStatuses.includes('missed'))       overallStatus = 'missed';
+    else if (allBucketStatuses.includes('partial')) overallStatus = 'partial';
 
     pcMap[key] = { key, name: data.name, prep, close, hasPrep, hasClose, overallStatus };
   }
@@ -2045,14 +2060,10 @@ function renderPrepClose() {
   const prepEmps   = data.filter(e => e.hasPrep);
   const closeEmps  = data.filter(e => e.hasClose);
   const prepIssues  = prepEmps.reduce((sum, e) => {
-    const cr = e.prep.commitments.filter(c => c.recurring);
-    const credits = cr.filter(c => c.pctCredit >= 50).length;
-    return sum + (cr.length - credits);
+    return sum + (e.prep.bucketStatus === 'missed' ? 1 : 0);
   }, 0);
   const closeIssues = closeEmps.reduce((sum, e) => {
-    const cr = e.close.commitments.filter(c => c.recurring);
-    const credits = cr.filter(c => c.pctCredit >= 50).length;
-    return sum + (cr.length - credits);
+    return sum + (e.close.bucketStatus === 'missed' ? 1 : 0);
   }, 0);
 
   // Filter
@@ -2061,8 +2072,8 @@ function renderPrepClose() {
   let rows = [...data];
   if (q) rows = rows.filter(e => e.name.toLowerCase().includes(q));
   if (showIssues) rows = rows.filter(e =>
-    (e.hasPrep  && e.prep.commitments.some(c => c.recurring && c.pctCredit < 50)) ||
-    (e.hasClose && e.close.commitments.some(c => c.recurring && c.pctCredit < 50))
+    (e.hasPrep  && e.prep.bucketStatus  === 'missed') ||
+    (e.hasClose && e.close.bucketStatus === 'missed')
   );
 
   const tableRows = rows.map(e => buildPcUnifiedRow(e)).join('');
@@ -2113,11 +2124,9 @@ function renderPrepClose() {
 }
 
 function creditSummary(empData) {
-  if (!empData || empData.commitments.length === 0) return { pct: null, credits: 0, total: 0, concerns: [], hasAnyData: false };
+  if (!empData || empData.commitments.length === 0) return { pct: null, credits: 0, total: 0, concerns: [], hasAnyData: false, extraWorked: 0 };
   const recurring = empData.commitments.filter(c => c.recurring);
-  const credits   = recurring.filter(c => c.pctCredit >= 50).length;
-  const concerns  = recurring.filter(c => c.pctCredit < 50).map(c => c.dow);
-  // Overall pct from empData (already available-based from summarize)
+  // Use bucket-level overallPct (which folds in non-recurring extra credit) for the summary %
   const pct = empData.overallPct !== null
     ? empData.overallPct
     : (() => {
@@ -2125,7 +2134,14 @@ function creditSummary(empData) {
         const allWorked = empData.commitments.reduce((s, c) => s + c.worked, 0);
         return allAvail > 0 ? Math.round((allWorked / allAvail) * 100) : 0;
       })();
-  return { pct, credits, total: recurring.length, concerns, hasAnyData: true };
+  // Credit count: a recurring DOW earns credit if bucket-level pct >= 50, not per-DOW pct.
+  // This means extra shifts on off-days can push a struggling DOW over the threshold.
+  // We use bucketStatus to determine whether the whole bucket cleared 50%.
+  const bucketCleared = empData.bucketStatus === 'met' || empData.bucketStatus === 'partial';
+  const credits = bucketCleared ? recurring.length : recurring.filter(c => c.pctCredit >= 50).length;
+  // Concerns: recurring DOWs whose own pctCredit < 50, only shown when bucket hasn't cleared
+  const concerns  = !bucketCleared ? recurring.filter(c => c.pctCredit < 50).map(c => c.dow) : [];
+  return { pct, credits, total: recurring.length, concerns, hasAnyData: true, extraWorked: empData.extraWorked || 0 };
 }
 
 function creditCell(cr, hasSide) {
@@ -2178,19 +2194,25 @@ function buildPcUnifiedDetail(e) {
     if (!empData || !empData.commitments || empData.commitments.length === 0) return '';
     const rows = empData.commitments.map(c => {
       const pctCls = !c.recurring ? '' : c.pctCredit>=80 ? 'c-ok' : c.pctCredit>=50 ? 'c-warn' : 'c-red';
+      const pfdNote = c.pfdMissed > 0
+        ? '<span style="font-size:9px;font-weight:600;color:#854d0e;background:#fef9c3;border:1px solid #fde047;border-radius:3px;padding:1px 5px;margin-left:4px">⭐ ' + c.pfdMissed + ' penalty-free</span>'
+        : '';
       const statLabel = c.recurring
         ? '<span class="' + pctCls + '" style="font-weight:700;font-size:11px">' + c.pctCredit + '%</span>'
           + '<span style="color:#aaa;font-size:10px;margin-left:3px">' + c.worked + '/' + c.available + '</span>'
           + (c.total < c.available ? '<span style="color:#d1d5db;font-size:9px;margin-left:3px">(' + c.total + ' records)</span>' : '')
+          + pfdNote
         : '<span style="color:#aaa;font-size:10px">not recurring</span>'
-          + '<span style="color:#ccc;font-size:9px;margin-left:4px">(' + c.total + '/' + (c.available || '?') + ' wks)</span>';
+          + '<span style="color:#ccc;font-size:9px;margin-left:4px">(' + c.total + '/' + (c.available || '?') + ' wks)</span>'
+          + pfdNote;
       const shiftLines = c.shifts.map(s => {
         const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock ? '#16a34a' : '#dc2626') + ';margin-right:4px;vertical-align:middle"></span>';
         const nc   = !s.hasClock && !s.fromDrop ? '<span style="color:#dc2626;font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
         const drop = s.fromDrop && !s.hasClock   ? '<span style="color:#b91c1c;font-size:9px;font-weight:700;margin-left:3px;background:#fee2e2;padding:1px 4px;border-radius:2px">DROPPED</span>' : '';
+        const pfd  = !s.hasClock && isPFD(s.date) ? '<span style="font-size:9px;font-weight:600;color:#854d0e;background:#fef9c3;border:1px solid #fde047;border-radius:3px;padding:1px 4px;margin-left:3px">⭐ Penalty-Free</span>' : '';
         return '<div style="line-height:1.6;white-space:nowrap">' + dot
           + '<span style="color:#374151;font-size:11px">' + esc(s.date) + '</span>'
-          + nc + drop + '</div>';
+          + nc + drop + pfd + '</div>';
       }).join('');
       // Dim the dow label for non-recurring days
       const dowColor = c.recurring ? '#111' : '#bbb';
@@ -2204,6 +2226,12 @@ function buildPcUnifiedDetail(e) {
     return '<div>'
       + '<div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:' + colorCls + ';margin-bottom:4px">' + label + '</div>'
       + '<table style="border-collapse:collapse;font-size:11px"><tbody>' + rows + '</tbody></table>'
+      + (empData.extraWorked > 0
+          ? '<div style="margin-top:6px;font-size:10px;color:#6b7280;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:5px 8px;line-height:1.5;white-space:normal;max-width:320px">'
+            + '＋ <strong>' + empData.extraWorked + ' extra shift' + (empData.extraWorked !== 1 ? 's' : '') + '</strong> worked on non-recurring days '
+            + 'count toward this bucket\'s overall credit. The overall % above reflects all shifts worked, not just the recurring day totals shown.'
+            + '</div>'
+          : '')
       + '</div>';
   }
 
