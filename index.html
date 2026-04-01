@@ -189,6 +189,7 @@ tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px sol
 .absence-overlap-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
 .di-badge.self    { background: #f3f4f6; color: #374151; }
 .di-badge.staff   { background: #fef3c7; color: #92400e; }
+.di-badge.pfd     { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
 
 /* ── Prep/Close mode ── */
 .pc-section-title { font-size: 13px; font-weight: 700; color: #111; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
@@ -404,6 +405,29 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
         <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
       </div>
     </details>
+    <details id="penalty-free-details" style="margin-top:8px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+        <span class="details-arrow">▶</span> Penalty-Free Days
+        <span id="pfd-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 5px"></span>
+      </summary>
+      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+        School is not in session, but shifts may still occur. Missed/dropped shifts on these dates won't count against attendance. Shifts <em>worked</em> still earn full credit.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
+          <input type="date" id="pfd-start-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="date" id="pfd-end-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+        </div>
+      </div>
+      <button onclick="addPenaltyFreeDay()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:#d97706;color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Date / Range</button>
+      <div id="pfd-list" style="margin-top:6px">
+        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
+      </div>
+    </details>
     <div class="info-box">
       <strong>Absences</strong>
       Self-reported: reporter = employee<br>
@@ -414,6 +438,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <strong>Shift drops</strong>
       Filled by Someone = accepted &amp; covered<br>
       Left Open = canceled / denied / expired
+      <strong>Penalty-Free Days</strong>
+      Unworked shifts excluded from denominator. Clocked shifts still count as worked.
     </div>
   </div>
   <div class="main" id="main">
@@ -441,7 +467,8 @@ const state = {
   strictDrops: true,           // if true, covered drops also count against attendance
   inferredClosures: new Set(), // auto-detected college-closed dates (YYYY-MM-DD)
   manualClosures:   new Set(), // manually entered college-closed dates (YYYY-MM-DD)
-  closuresDirty: false         // true when closures changed but not yet re-analyzed
+  closuresDirty: false,        // true when closures changed but not yet re-analyzed
+  penaltyFreeDays: new Set()   // dates where absences/drops aren't penalized, but worked shifts still count
 };
 let _analyzing = false; // re-entrancy guard — prevents onDateFilterChange from re-triggering analyze()
 
@@ -1641,9 +1668,25 @@ function recomputeEmployee(nameKey) {
   if (!d) return;
   const coveredPenalty2 = state.strictDrops ? r.covered : 0;
   const activeShifts = d.clockin.filter(s => !state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`));
-  r.total_assigned = activeShifts.length + (r.picked_up || 0) + coveredPenalty2;
-  r.worked       = activeShifts.filter(s => s.hasClock).length + r.picked_up;
-  r.no_timeclock = activeShifts.filter(s => !s.hasClock).length;
+
+  // Penalty-free days: unworked shifts don't count against attendance,
+  // but worked (clocked) shifts still earn full credit.
+  const pfdISO = state.penaltyFreeDays; // Set of YYYY-MM-DD strings
+  function shiftISO(s) {
+    // s.date is formatted like "Jan 20, 2026" — parse to YYYY-MM-DD for Set lookup
+    const MONTHS_IDX2 = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+    const m = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!m) return null;
+    return `${m[3]}-${MONTHS_IDX2[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+  }
+
+  const penaltyShifts = activeShifts.filter(s => { const iso = shiftISO(s); return iso && pfdISO.has(iso) && !s.hasClock; });
+  const penaltyShiftSet = new Set(penaltyShifts);
+  const scoredShifts = activeShifts.filter(s => !penaltyShiftSet.has(s));
+
+  r.total_assigned = scoredShifts.length + (r.picked_up || 0) + coveredPenalty2;
+  r.worked       = scoredShifts.filter(s => s.hasClock).length + r.picked_up;
+  r.no_timeclock = scoredShifts.filter(s => !s.hasClock).length;
   r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
   // Lateness stats (only from shifts with timesheet data)
   const lateShifts = activeShifts.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
@@ -1694,6 +1737,16 @@ function renderAttRows() {
       ${lateCell}
     </tr>${isOpen?`<tr class="detail-row"><td colspan="14">${buildAttDetail(key,r)}</td></tr>`:''}`;
   }).join('');
+}
+
+// Shared helper: returns true if a formatted date string ("Jan 20, 2026") falls on a penalty-free day
+function isPFD(dateStr) {
+  if (!state.penaltyFreeDays.size || !dateStr) return false;
+  const MONTHS_PFD = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+  const m = dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+  if (!m) return false;
+  const iso = `${m[3]}-${MONTHS_PFD[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+  return state.penaltyFreeDays.has(iso);
 }
 
 function buildAttDetail(key,r) {
@@ -1776,6 +1829,7 @@ function buildAttDetail(key,r) {
     const isAuto   = state.autocorrections && state.autocorrections.has(sKey);
     const isOmitted = state.omissions.has(oKey);
     const hasAbsence = !s.hasClock && absenceKeys.has(`${s.date}|${timeStrToMinutes(s.time)}`);
+    const isPenaltyFree = !s.hasClock && isPFD(s.date);
     let badge, btn='';
     if (s.hasClock && isManual) {
       badge = '<span class="di-badge manual">Manually Marked</span>';
@@ -1789,6 +1843,7 @@ function buildAttDetail(key,r) {
       badge = '<span class="di-badge noclock">No Clock-In</span>';
       btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
     }
+    const pfdBadge = isPenaltyFree ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
     const omitBtn = `<button class="omit-btn${isOmitted?' omitted':''}" title="${isOmitted?'Restore shift to counts':'Omit shift from counts'}" onclick="event.stopPropagation();omitShift('${oKey.replace(/'/g,"\\'")}','${key}')">${isOmitted?'↩ Restore':'✕ Omit'}</button>`;
     const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
     // Lateness info — only when timesheet data available
@@ -1802,27 +1857,32 @@ function buildAttDetail(key,r) {
                + `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;background:${lateBg};color:${lateColor}">${lateInfo.label}</span>`;
     }
     return `<div class="detail-item${hasAbsence&&!isOmitted?' has-absence':''}${isOmitted?' omitted-shift':''}">
-      <div class="di-date">${esc(s.date)} ${badge}${btn}${omitBtn}${absBadge}${lateHtml}</div>
+      <div class="di-date">${esc(s.date)} ${badge}${pfdBadge}${btn}${omitBtn}${absBadge}${lateHtml}</div>
       <div class="di-meta">${[s.time,s.length,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.notes?`<div class="di-note">${esc(s.notes)}</div>`:''}
     </div>`;
   }).join('');
-  const absHtml=!absences.length?'<p class="detail-empty">No absences recorded</p>':absences.map(a=>`
+  const absHtml=!absences.length?'<p class="detail-empty">No absences recorded</p>':absences.map(a=>{
+    const absPfd = isPFD(a.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
+    return `
     <div class="detail-item">
-      <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span></div>
+      <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span>${absPfd}</div>
       <div class="di-meta">${[a.time,a.site,a.position].filter(Boolean).map(esc).join(' · ')}${a.action&&a.action!=='None'?' · '+esc(a.action):''}</div>
       ${!a.isSelf?`<div class="di-meta">Reported by: <strong>${esc(a.reporter)}</strong></div>`:''}
       ${a.note?`<div class="di-note">${esc(a.note)}</div>`:''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const shiftHtml=!shifts.length?'<p class="detail-empty">No shift requests</p>':shifts.map(s=>{
     const [bcls,btxt]=s.type==='pickup'?['filled','Covered for Others']:s.type==='swap'?['swap','Swap']:['drop','Drop'];
+    const dropPfd = s.type !== 'pickup' && isPFD(s.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
     return `<div class="detail-item">
-      <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${s.status?' · '+esc(s.status):''}</div>
+      <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${dropPfd}${s.status?' · '+esc(s.status):''}</div>
       <div class="di-meta">${[s.time,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.acceptedBy?`<div class="di-meta">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
       ${s.coveredFor?`<div class="di-meta">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
       ${s.message?`<div class="di-note">${esc(s.message)}</div>`:''}
-    </div>`; }).join('');
+    </div>`;
+  }).join('');
   return `<div class="detail-panel"><div class="detail-sections">
     <div class="detail-section">
       <h4 class="h-attendance">
@@ -3056,6 +3116,103 @@ function removeManualClosure(dateStr) {
   renderClosuresSidebar();
 }
 
+
+// ── Penalty-Free Days ─────────────────────────────────────────────────────────
+function addPenaltyFreeDay() {
+  const startInput = document.getElementById('pfd-start-input');
+  const endInput   = document.getElementById('pfd-end-input');
+  if (!startInput || !startInput.value) return;
+  const startVal = startInput.value; // YYYY-MM-DD
+  const endVal   = endInput && endInput.value ? endInput.value : startVal;
+  if (endVal < startVal) { alert('End date must be on or after start date.'); return; }
+
+  // Expand range into individual days
+  let cur = new Date(startVal + 'T12:00:00Z');
+  const end = new Date(endVal + 'T12:00:00Z');
+  while (cur <= end) {
+    state.penaltyFreeDays.add(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  startInput.value = '';
+  if (endInput) endInput.value = '';
+  renderPenaltyFreeSidebar();
+  if (state.results) {
+    for (const r of state.results) recomputeEmployee(normName(r.name));
+    renderAttRows();
+    refreshAttStats();
+  }
+}
+
+function removePenaltyFreeDay(dateStr) {
+  state.penaltyFreeDays.delete(dateStr);
+  renderPenaltyFreeSidebar();
+  if (state.results) {
+    for (const r of state.results) recomputeEmployee(normName(r.name));
+    renderAttRows();
+    refreshAttStats();
+  }
+}
+
+// Remove an entire contiguous run of dates (as shown in the grouped list)
+function removePenaltyFreeRange(startISO, endISO) {
+  let cur = new Date(startISO + 'T12:00:00Z');
+  const end = new Date(endISO + 'T12:00:00Z');
+  while (cur <= end) {
+    state.penaltyFreeDays.delete(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  renderPenaltyFreeSidebar();
+  if (state.results) {
+    for (const r of state.results) recomputeEmployee(normName(r.name));
+    renderAttRows();
+    refreshAttStats();
+  }
+}
+
+function renderPenaltyFreeSidebar() {
+  const days = [...state.penaltyFreeDays].sort();
+  const badge = document.getElementById('pfd-count-badge');
+  if (badge) {
+    badge.textContent = days.length + ' day' + (days.length !== 1 ? 's' : '');
+    badge.style.display = days.length > 0 ? '' : 'none';
+  }
+  const listEl = document.getElementById('pfd-list');
+  if (!listEl) return;
+  if (days.length === 0) {
+    listEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+    return;
+  }
+
+  // Group consecutive days into runs for compact display
+  const runs = []; // [{start, end}]
+  let runStart = days[0], runEnd = days[0];
+  for (let i = 1; i < days.length; i++) {
+    const prev = new Date(runEnd + 'T12:00:00Z');
+    prev.setUTCDate(prev.getUTCDate() + 1);
+    const prevISO = prev.toISOString().slice(0, 10);
+    if (days[i] === prevISO) {
+      runEnd = days[i]; // extend run
+    } else {
+      runs.push({ start: runStart, end: runEnd });
+      runStart = runEnd = days[i];
+    }
+  }
+  runs.push({ start: runStart, end: runEnd });
+
+  listEl.innerHTML = runs.map(({ start, end }) => {
+    const label = start === end
+      ? `🟡 ${fmtClosureDate(start)}`
+      : `🟡 ${fmtClosureDate(start)} – ${fmtClosureDate(end)}`;
+    const removeCall = start === end
+      ? `removePenaltyFreeDay('${start}')`
+      : `removePenaltyFreeRange('${start}','${end}')`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+      <span>${label}</span>
+      <button onclick="${removeCall}" style="font-size:10px;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
 function inferClosuresFromData(rawShifts, mergedShiftRequests, rangeFrom, rangeTo) {
   // Collect every date that has ANY P&C activity across all employees
   const activeDates = new Set();
