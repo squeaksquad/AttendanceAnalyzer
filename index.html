@@ -2076,10 +2076,12 @@ function renderPrepClose() {
   const prepEmps   = data.filter(e => e.hasPrep);
   const closeEmps  = data.filter(e => e.hasClose);
   const prepIssues  = prepEmps.reduce((sum, e) => {
-    return sum + (e.prep.bucketStatus === 'missed' ? 1 : 0);
+    const cr = creditSummary(e.prep);
+    return sum + Math.max(0, cr.total - cr.credits);
   }, 0);
   const closeIssues = closeEmps.reduce((sum, e) => {
-    return sum + (e.close.bucketStatus === 'missed' ? 1 : 0);
+    const cr = creditSummary(e.close);
+    return sum + Math.max(0, cr.total - cr.credits);
   }, 0);
 
   // Filter
