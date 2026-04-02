@@ -2077,12 +2077,17 @@ function renderPrepClose() {
   const closeEmps  = data.filter(e => e.hasClose);
   const prepIssues  = prepEmps.reduce((sum, e) => {
     const cr = creditSummary(e.prep);
-    return sum + Math.max(0, cr.total - cr.credits);
+    const missed = Math.max(0, cr.total - cr.credits);
+    if (missed > 0) console.log('[P&C DIAG] PREP missed', missed, 'for', e.name, '| credits:', cr.credits, '/', cr.total, '| bucketStatus:', e.prep.bucketStatus, '| overallPct:', e.prep.overallPct);
+    return sum + missed;
   }, 0);
   const closeIssues = closeEmps.reduce((sum, e) => {
     const cr = creditSummary(e.close);
-    return sum + Math.max(0, cr.total - cr.credits);
+    const missed = Math.max(0, cr.total - cr.credits);
+    if (missed > 0) console.log('[P&C DIAG] CLOSE missed', missed, 'for', e.name, '| credits:', cr.credits, '/', cr.total, '| bucketStatus:', e.close.bucketStatus, '| overallPct:', e.close.overallPct);
+    return sum + missed;
   }, 0);
+  console.log('[P&C DIAG] Total prepIssues:', prepIssues, '| closeIssues:', closeIssues);
 
   // Filter
   const q = (state.pc.filterText || '').toLowerCase();
@@ -3183,21 +3188,13 @@ function addPenaltyFreeDay() {
   startInput.value = '';
   if (endInput) endInput.value = '';
   renderPenaltyFreeSidebar();
-  if (state.results) {
-    for (const r of state.results) recomputeEmployee(normName(r.name));
-    renderAttRows();
-    refreshAttStats();
-  }
+  _rebuildAfterPFDChange();
 }
 
 function removePenaltyFreeDay(dateStr) {
   state.penaltyFreeDays.delete(dateStr);
   renderPenaltyFreeSidebar();
-  if (state.results) {
-    for (const r of state.results) recomputeEmployee(normName(r.name));
-    renderAttRows();
-    refreshAttStats();
-  }
+  _rebuildAfterPFDChange();
 }
 
 // Remove an entire contiguous run of dates (as shown in the grouped list)
@@ -3209,10 +3206,22 @@ function removePenaltyFreeRange(startISO, endISO) {
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
   renderPenaltyFreeSidebar();
-  if (state.results) {
-    for (const r of state.results) recomputeEmployee(normName(r.name));
-    renderAttRows();
-    refreshAttStats();
+  _rebuildAfterPFDChange();
+}
+
+function _rebuildAfterPFDChange() {
+  if (!state.results) return;
+  // Recompute attendance stats (PFD affects no-timeclock penalty counts)
+  for (const r of state.results) recomputeEmployee(normName(r.name));
+  renderAttRows();
+  refreshAttStats();
+  // Rebuild P&C data so pfdMissed and available counts stay in sync
+  if (state._lastBuilt) {
+    state.prepCloseData = buildPrepCloseData(
+      state._lastBuilt.rawShifts, state._lastBuilt.mergedShifts,
+      state._lastBuilt.allResults, state._lastBuilt.totalWeeks
+    );
+    if (state.mode === 'prepclosing') renderPrepClose();
   }
 }
 
@@ -3389,7 +3398,19 @@ function exportSnapshot() {
     manualClosures: [...state.manualClosures],
     overrides: [...state.overrides],
     penaltyFreeDays: [...state.penaltyFreeDays],
-    activeMode: state.mode || 'attendance'
+    activeMode: state.mode || 'attendance',
+    // Flat map of "nameKey|date|time" -> true for every shift that has hasClock=true
+    // in the current detailMap (includes autocorrections + manual overrides).
+    // Applied after analyze() in the bootstrap so P&C credits are accurate.
+    clockOverrides: (() => {
+      const out = [];
+      for (const [nk, detail] of Object.entries(state.detailMap || {})) {
+        for (const s of detail.clockin) {
+          if (s.hasClock) out.push(`${nk}|${s.date}|${s.time}`);
+        }
+      }
+      return out;
+    })()
   };
   const dataJson = JSON.stringify(snapshotData);
 
@@ -3423,6 +3444,9 @@ function exportSnapshot() {
     }
     // Restore manual clock-in overrides — applied after analyze() re-derives state
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+    // clockOverrides: flat set of "nameKey|date|time" for all hasClock=true shifts
+    // at export time (includes autocorrections). Applied after analyze() below.
+    var clockOverrideSet = new Set(d.clockOverrides || []);
     // Set date filter inputs
     var fromEl = document.getElementById('filter-date-from');
     var toEl   = document.getElementById('filter-date-to');
@@ -3468,7 +3492,39 @@ function exportSnapshot() {
       });
     }
     analyze();
-    // Render only the active tab after analyze() so stat cards are correct
+    // Re-apply hasClock overrides from export time so P&C credits match exactly.
+    // analyze() re-derives hasClock from raw data (losing autocorrections), so we
+    // stamp the resolved values back in here and rebuild P&C data.
+    if (clockOverrideSet.size > 0) {
+      var affectedByOverrides = new Set();
+      for (var sKey of clockOverrideSet) {
+        var kparts = sKey.split('|');
+        if (kparts.length < 3) continue;
+        var nk = kparts[0], odt = kparts[1], otm = kparts[2];
+        var det = state.detailMap[nk];
+        if (!det) continue;
+        var entry = det.clockin.find(function(s) { return s.date === odt && s.time === otm; });
+        if (entry && !entry.hasClock) { entry.hasClock = true; affectedByOverrides.add(nk); }
+      }
+      for (var affKey of affectedByOverrides) {
+        if (typeof recomputeEmployee === 'function') recomputeEmployee(affKey);
+      }
+      if (state._lastBuilt) {
+        // Re-sync rawShifts hasClock from detailMap so P&C data is correct
+        for (var rs of state._lastBuilt.rawShifts) {
+          var det2 = state.detailMap[rs.nameKey];
+          if (!det2) continue;
+          var m2 = det2.clockin.find(function(s) {
+            return s.date === rs.date && s.startH === rs.startH && s.startM === rs.startM;
+          });
+          if (m2) rs.hasClock = m2.hasClock;
+        }
+        state.prepCloseData = buildPrepCloseData(
+          state._lastBuilt.rawShifts, state._lastBuilt.mergedShifts,
+          state._lastBuilt.allResults, state._lastBuilt.totalWeeks
+        );
+      }
+    }
     if (d.activeMode === 'prepclosing') {
       if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
     } else {
@@ -3502,9 +3558,10 @@ function exportSnapshot() {
 })();
 <\/script>`;
 
-  // Remove any existing bootstrap script from the DOM before snapshotting
-  const existingBoot = document.getElementById('snapshot-data-bootstrap');
-  if (existingBoot) existingBoot.remove();
+  // Remove ALL existing bootstraps BEFORE injecting the fresh one so the
+  // querySelectorAll doesn't accidentally remove the newly appended bootEl.
+  // This handles duplicates that accumulate when a snapshot is re-exported.
+  document.querySelectorAll('script[id="snapshot-data-bootstrap"]').forEach(el => el.remove());
 
   // Inject bootstrap as a real script element so outerHTML captures it correctly.
   // IMPORTANT: the script executes immediately when appended to the live DOM.
@@ -3521,13 +3578,15 @@ function exportSnapshot() {
     .replace(/\s*<\/script>\s*$/, '');
   document.body.appendChild(bootEl);
 
-  // If P&C tab is active, re-render it now so the correct credit counts are baked
-  // into the static HTML. This works because state.prepCloseData is already current.
-  if (state.mode === 'prepclosing' && state.prepCloseData && typeof renderPrepClose === 'function') {
+  // Always pre-render P&C content before capture so stat cards (prepIssues, closeIssues)
+  // are baked into the static HTML regardless of which tab was active at export time.
+  // If attendance tab is active, we render P&C now, capture, then restore attendance view.
+  const wasOnAttendance = state.mode !== 'prepclosing';
+  if (state.prepCloseData && typeof renderPrepClose === 'function') {
     renderPrepClose();
   }
 
-  // Now capture the full HTML with the injected script intact
+  // Capture the full HTML with exactly one bootstrap script injected
   const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 
   // Clean up — remove the injected element from the live page and clear the flag
@@ -3535,7 +3594,11 @@ function exportSnapshot() {
   window._snapshotExportInProgress = false;
   // Restore modal state
   if (modal && modalWasVisible) modal.style.display = 'flex';
-  window._snapshotExportInProgress = false;
+  // If the user was on the attendance tab, restore it (we temporarily rendered P&C for capture)
+  if (wasOnAttendance && typeof renderAttendance === 'function') {
+    renderAttendance();
+    if (typeof renderAttRows === 'function') renderAttRows();
+  }
 
   // Download
   const blob = new Blob([snapshotHtml], {type: 'text/html'});
@@ -3845,7 +3908,16 @@ function generateFullManagerSnapshot(periodTag) {
     manualClosures: [...state.manualClosures],
     overrides: [...state.overrides],
     penaltyFreeDays: [...state.penaltyFreeDays],
-    activeMode: state.mode || 'attendance'
+    activeMode: state.mode || 'attendance',
+    clockOverrides: (() => {
+      const out = [];
+      for (const [nk, detail] of Object.entries(state.detailMap || {})) {
+        for (const s of detail.clockin) {
+          if (s.hasClock) out.push(`${nk}|${s.date}|${s.time}`);
+        }
+      }
+      return out;
+    })()
   };
 
   const bootstrapScript = `
@@ -3871,6 +3943,7 @@ function generateFullManagerSnapshot(periodTag) {
       if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
     }
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+    var clockOverrideSet = new Set(d.clockOverrides || []);
     var fromEl = document.getElementById('filter-date-from');
     var toEl   = document.getElementById('filter-date-to');
     if (fromEl && d.dateFrom) fromEl.value = d.dateFrom;
@@ -3899,6 +3972,36 @@ function generateFullManagerSnapshot(periodTag) {
     populateWorkerDropdown();
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
     analyze();
+    // Re-apply hasClock overrides from export time so P&C credits match exactly.
+    if (clockOverrideSet.size > 0) {
+      var affectedByOverrides = new Set();
+      for (var sKey of clockOverrideSet) {
+        var kparts = sKey.split('|');
+        if (kparts.length < 3) continue;
+        var nk = kparts[0], odt = kparts[1], otm = kparts[2];
+        var det = state.detailMap[nk];
+        if (!det) continue;
+        var entry = det.clockin.find(function(s) { return s.date === odt && s.time === otm; });
+        if (entry && !entry.hasClock) { entry.hasClock = true; affectedByOverrides.add(nk); }
+      }
+      for (var affKey of affectedByOverrides) {
+        if (typeof recomputeEmployee === 'function') recomputeEmployee(affKey);
+      }
+      if (state._lastBuilt) {
+        for (var rs of state._lastBuilt.rawShifts) {
+          var det2 = state.detailMap[rs.nameKey];
+          if (!det2) continue;
+          var m2 = det2.clockin.find(function(s) {
+            return s.date === rs.date && s.startH === rs.startH && s.startM === rs.startM;
+          });
+          if (m2) rs.hasClock = m2.hasClock;
+        }
+        state.prepCloseData = buildPrepCloseData(
+          state._lastBuilt.rawShifts, state._lastBuilt.mergedShifts,
+          state._lastBuilt.allResults, state._lastBuilt.totalWeeks
+        );
+      }
+    }
     if (pendingOverrides.length && typeof markWorked === 'function') {
       pendingOverrides.forEach(function(sKey) {
         var parts = sKey.split('|');
@@ -3924,9 +4027,8 @@ function generateFullManagerSnapshot(periodTag) {
 })();
 <\/script>`;
 
-  // Remove any existing bootstrap from the live DOM, inject temporarily to capture outerHTML
-  const existingBoot = document.getElementById('snapshot-data-bootstrap');
-  if (existingBoot) existingBoot.remove();
+  // Remove ALL existing bootstraps before injecting fresh one (handles re-export accumulation)
+  document.querySelectorAll('script[id="snapshot-data-bootstrap"]').forEach(el => el.remove());
 
   window._snapshotExportInProgress = true;
   const modal2 = document.getElementById('github-push-modal');
