@@ -3454,6 +3454,8 @@ function exportSnapshot() {
     // Update date filter label then analyze
     if (typeof onDateFilterChange === 'function') onDateFilterChange();
     analyze();
+    // Re-render P&C so stat cards reflect correct credit counts (not stale pre-rendered HTML)
+    if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
     // Re-apply manual overrides after analyze (which resets detailMap from raw data)
     if (pendingOverrides.length && typeof markWorked === 'function') {
       pendingOverrides.forEach(function(sKey) {
@@ -3500,6 +3502,9 @@ function exportSnapshot() {
     .replace(/^\s*<script[^>]*>\s*/, '')
     .replace(/\s*<\/script>\s*$/, '');
   document.body.appendChild(bootEl);
+
+  // Ensure P&C stat cards are up-to-date before capturing HTML
+  if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
 
   // Now capture the full HTML with the injected script intact
   const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
