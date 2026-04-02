@@ -3369,7 +3369,8 @@ function exportSnapshot() {
     dateFrom:  fromStr,
     dateTo:    toStr,
     manualClosures: [...state.manualClosures],
-    overrides: [...state.overrides]
+    overrides: [...state.overrides],
+    penaltyFreeDays: [...state.penaltyFreeDays]
   };
   const dataJson = JSON.stringify(snapshotData);
 
@@ -3396,6 +3397,10 @@ function exportSnapshot() {
     state.shifts2   = d.shifts2   || [];
     if (d.manualClosures && d.manualClosures.length) {
       state.manualClosures = new Set(d.manualClosures);
+    }
+    if (d.penaltyFreeDays && d.penaltyFreeDays.length) {
+      state.penaltyFreeDays = new Set(d.penaltyFreeDays);
+      if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
     }
     // Restore manual clock-in overrides — applied after analyze() re-derives state
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
@@ -3794,7 +3799,8 @@ function generateFullManagerSnapshot(periodTag) {
     dateFrom:  fromStr,
     dateTo:    toStr,
     manualClosures: [...state.manualClosures],
-    overrides: [...state.overrides]
+    overrides: [...state.overrides],
+    penaltyFreeDays: [...state.penaltyFreeDays]
   };
 
   const bootstrapScript = `
@@ -3815,6 +3821,10 @@ function generateFullManagerSnapshot(periodTag) {
     state.clockin2  = d.clockin2  || [];
     state.shifts2   = d.shifts2   || [];
     if (d.manualClosures && d.manualClosures.length) state.manualClosures = new Set(d.manualClosures);
+    if (d.penaltyFreeDays && d.penaltyFreeDays.length) {
+      state.penaltyFreeDays = new Set(d.penaltyFreeDays);
+      if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
+    }
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
     var fromEl = document.getElementById('filter-date-from');
     var toEl   = document.getElementById('filter-date-to');
