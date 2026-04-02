@@ -3503,8 +3503,24 @@ function exportSnapshot() {
     .replace(/\s*<\/script>\s*$/, '');
   document.body.appendChild(bootEl);
 
-  // Ensure P&C stat cards are up-to-date before capturing HTML
-  if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
+  // Patch P&C stat card numbers directly in the DOM before capture.
+  // renderPrepClose() can't be used here because analyze() hasn't re-run yet;
+  // instead recompute from the current in-memory prepCloseData (already correct).
+  if (state.prepCloseData) {
+    const _pcEmps = state.prepCloseData;
+    const _prepEmps  = _pcEmps.filter(e => e.hasPrep);
+    const _closeEmps = _pcEmps.filter(e => e.hasClose);
+    const _prepMissed  = _prepEmps.reduce((s, e)  => { const cr = creditSummary(e.prep);  return s + Math.max(0, cr.total - cr.credits); }, 0);
+    const _closeMissed = _closeEmps.reduce((s, e) => { const cr = creditSummary(e.close); return s + Math.max(0, cr.total - cr.credits); }, 0);
+    // Find and patch the stat cards by their label text
+    document.querySelectorAll('.stat-card').forEach(card => {
+      const lbl = card.querySelector('.lbl');
+      const val = card.querySelector('.val');
+      if (!lbl || !val) return;
+      if (lbl.textContent.trim() === 'Prep Credits Missed')    val.textContent = _prepMissed;
+      if (lbl.textContent.trim() === 'Closing Credits Missed') val.textContent = _closeMissed;
+    });
+  }
 
   // Now capture the full HTML with the injected script intact
   const snapshotHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
