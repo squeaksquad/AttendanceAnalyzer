@@ -1946,6 +1946,22 @@ function copyShiftList(key, mode, btn) {
     shifts = d.clockin.filter(s => s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
   }
   if (!shifts.length) return;
+  const _COPY_MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  shifts = shifts.sort((a, b) => {
+    const key = s => {
+      const dm = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+      if (!dm) return 0;
+      const base = Date.UTC(+dm[3], _COPY_MONTHS[dm[1]] || 0, +dm[2]);
+      const t = s.time ? s.time.split('–')[0].trim() : '';
+      const tm = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+      if (!tm) return base;
+      let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
+      if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+      if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
+      return base + (h * 60 + m) * 60000;
+    };
+    return key(a) - key(b);
+  });
   const lines = shifts.map(s => {
     const meta = [s.date, s.time, s.site, s.position].filter(Boolean).join(' | ');
     if (mode === 'late') {
