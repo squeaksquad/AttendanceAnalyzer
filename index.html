@@ -413,7 +413,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
         School is not in session, but shifts may still occur. Missed/dropped shifts on these dates won't count against attendance. Shifts <em>worked</em> still earn full credit.
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px">
+      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">
         <div>
           <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
           <input type="date" id="pfd-start-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
@@ -468,7 +468,14 @@ const state = {
   inferredClosures: new Set(), // auto-detected college-closed dates (YYYY-MM-DD)
   manualClosures:   new Set(), // manually entered college-closed dates (YYYY-MM-DD)
   closuresDirty: false,        // true when closures changed but not yet re-analyzed
-  penaltyFreeDays: new Set()   // dates where absences/drops aren't penalized, but worked shifts still count
+  penaltyFreeDays: (() => {
+    // Default: Spring break / end-of-semester penalty-free window
+    const defaults = new Set();
+    const start = new Date('2026-03-14'), end = new Date('2026-03-22');
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1))
+      defaults.add(d.toISOString().slice(0, 10));
+    return defaults;
+  })()   // dates where absences/drops aren't penalized, but worked shifts still count
 };
 let _analyzing = false; // re-entrancy guard — prevents onDateFilterChange from re-triggering analyze()
 
@@ -1243,15 +1250,23 @@ function buildResults() {
 function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWeeks) {
   const byEmpType = {};
 
-  // ── Helper: is a shift-request time window a prep or close slot? ──────────
-  // We parse the start time from the shift request to classify it.
-  function classifyRequestTime(startTimeVal) {
-    if (!startTimeVal) return null;
+  // ── Helper: classify a shift as prep/close based on exact scheduled start time ──
+  // Prep:  7:30am on weekdays (Mon–Fri), 8:30am on weekends (Sat/Sun)
+  // Close: 8:00pm (20:00) any day
+  // dow must be a full day name string (e.g. 'Wednesday') from DAYS.
+  const WEEKEND_DAYS = new Set(['Saturday', 'Sunday']);
+  function isPrepShift(h, m, dow) {
+    return WEEKEND_DAYS.has(dow) ? (h === 8 && m === 30) : (h === 7 && m === 30);
+  }
+  function isCloseShift(h, m) {
+    return h === 20 && m === 0;
+  }
+  function classifyRequestTime(startTimeVal, dow) {
+    if (!startTimeVal || !dow) return null;
     const p = parseUniversal(startTimeVal);
     if (!p) return null;
-    const h = p.h;
-    if (h >= 6 && h <= 9)   return 'prep';
-    if (h >= 19 && h <= 21) return 'close';
+    if (isPrepShift(p.h, p.m, dow))  return 'prep';
+    if (isCloseShift(p.h, p.m))      return 'close';
     return null;
   }
 
@@ -1259,8 +1274,8 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
   // Used to avoid double-counting dropped shifts that still appear in Shifts Worked
   const rawShiftDates = {}; // nameKey -> Set of "date|bucket" strings
   for (const s of rawShifts) {
-    const isPrep  = (s.startH >= 6 && s.startH <= 9);
-    const isClose = (s.startH >= 19 && s.startH <= 21);
+    const isPrep  = isPrepShift(s.startH, s.startM, s.dow);
+    const isClose = isCloseShift(s.startH, s.startM);
     if (!isPrep && !isClose) continue;
     if (!rawShiftDates[s.nameKey]) rawShiftDates[s.nameKey] = new Set();
     const bucket = isPrep ? 'prep' : 'close';
@@ -1269,8 +1284,8 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
 
   // ── Step 2: Process rawShifts (Shifts Worked) — existing logic ───────────
   for (const s of rawShifts) {
-    const isPrep  = (s.startH >= 6 && s.startH <= 9);
-    const isClose = (s.startH >= 19 && s.startH <= 21);
+    const isPrep  = isPrepShift(s.startH, s.startM, s.dow);
+    const isClose = isCloseShift(s.startH, s.startM);
     if(!isPrep && !isClose) continue;
     if(!byEmpType[s.nameKey]) byEmpType[s.nameKey]={ name:s.name, prep:{}, close:{} };
     const bucket = isPrep ? 'prep' : 'close';
@@ -1299,7 +1314,12 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
       const type = (row['Type'] || '').toString().trim().toLowerCase();
       if (!assignee || !dropTypes.has(type)) continue;
 
-      const bucket = classifyRequestTime(row['Shift Start Time']);
+      // Parse date first — DOW is needed to correctly classify prep (7:30 vs 8:30)
+      const dp = parseUniversal(row['Shift Start Date']);
+      const dow = dp ? dp.dow : null;
+      if (!dow) continue;
+
+      const bucket = classifyRequestTime(row['Shift Start Time'], dow);
       if (!bucket) continue;
 
       const nameKey = normName(assignee);
@@ -1309,11 +1329,6 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
       // Skip if this date already has a Shifts Worked entry for this person+bucket
       // (uncovered drops remain in SW, so they're already counted)
       if (rawShiftDates[nameKey] && rawShiftDates[nameKey].has(dateStr + '|' + bucket)) continue;
-
-      // Parse day-of-week from the shift start date
-      const dp = parseUniversal(row['Shift Start Date']);
-      const dow = dp ? dp.dow : null;
-      if (!dow) continue;
 
       const startP = parseUniversal(row['Shift Start Time']);
       const startH = startP ? startP.h : (bucket === 'prep' ? 7 : 20);
@@ -2260,15 +2275,19 @@ function buildPcUnifiedDetail(e) {
 
   const prepHtml  = sectionHtml('Morning Prep', '#7c3aed', e.hasPrep  ? e.prep  : null);
   const closeHtml = sectionHtml('Closing',      '#0369a1', e.hasClose ? e.close : null);
-  const cols = (prepHtml ? 1 : 0) + (closeHtml ? 1 : 0);
-  if (cols === 0) {
+  if (!prepHtml && !closeHtml) {
     // Has P&C flag set (from drops) but all days are non-recurring — show a note
     return '<div class="detail-panel" style="margin-left:300px;color:#9ca3af;font-size:12px;font-style:italic;padding:8px 0">'
       + 'Shifts present but no recurring commitments identified for this period.'
       + '</div>';
   }
-  return '<div class="detail-panel" style="display:grid;grid-template-columns:repeat(' + cols + ',auto);gap:24px;width:fit-content;margin-left:300px">'
-    + prepHtml + closeHtml + '</div>';
+  // Always render a two-column grid so prep sits under the Prep header and
+  // closing sits under the Closing header, matching the main table column split.
+  // Empty placeholder divs keep the grid aligned when only one bucket has data.
+  return '<div class="detail-panel" style="display:grid;grid-template-columns:1fr 1fr;margin-left:300px">'
+    + '<div style="padding:10px 16px 10px 0;border-right:1px solid #e5e7eb">' + (prepHtml || '') + '</div>'
+    + '<div style="padding:10px 0 10px 16px;background:#f0f9ff">' + (closeHtml || '') + '</div>'
+    + '</div>';
 }
 
 function togglePcUnified(key) {
@@ -3272,11 +3291,11 @@ function inferClosuresFromData(rawShifts, mergedShiftRequests, rangeFrom, rangeT
   // Collect every date that has ANY P&C activity across all employees
   const activeDates = new Set();
 
-  // From Shifts Worked (rawShifts already filtered to P&C time windows upstream,
-  // but we need all dates so scan rawShifts directly)
+  // From Shifts Worked (scan rawShifts directly for P&C dates)
+  const WEEKEND_DAYS_INF = new Set(['Saturday', 'Sunday']);
   for (const s of rawShifts) {
-    const isPrep  = s.startH >= 6 && s.startH <= 9;
-    const isClose = s.startH >= 19 && s.startH <= 21;
+    const isPrep  = WEEKEND_DAYS_INF.has(s.dow) ? (s.startH === 8 && s.startM === 30) : (s.startH === 7 && s.startM === 30);
+    const isClose = s.startH === 20 && s.startM === 0;
     if (isPrep || isClose) activeDates.add(s.date); // fmtDate string e.g. "Jan 20, 2026"
   }
 
@@ -3289,8 +3308,11 @@ function inferClosuresFromData(rawShifts, mergedShiftRequests, rangeFrom, rangeT
       if (!startVal) continue;
       const p = parseUniversal(startVal);
       if (!p) continue;
-      const h = p.h;
-      if (!((h >= 6 && h <= 9) || (h >= 19 && h <= 21))) continue;
+      const dp = parseUniversal(row['Shift Start Date']);
+      const dow = dp ? dp.dow : null;
+      const isPrep  = dow && (WEEKEND_DAYS_INF.has(dow) ? (p.h === 8 && p.m === 30) : (p.h === 7 && p.m === 30));
+      const isClose = p.h === 20 && p.m === 0;
+      if (!isPrep && !isClose) continue;
       const dateStr = fmtDate(row['Shift Start Date']);
       if (dateStr) activeDates.add(dateStr);
     }
@@ -3368,6 +3390,9 @@ function updateStickyOffsets() {
 }
 
 window.addEventListener('resize', updateStickyOffsets);
+
+// Render pre-populated penalty-free days on page load
+document.addEventListener('DOMContentLoaded', () => renderPenaltyFreeSidebar());
 
 function exportSnapshot() {
   // Build a filename from the active date range
