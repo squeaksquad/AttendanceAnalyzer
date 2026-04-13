@@ -228,8 +228,17 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
 
 /* ── Insights tab ── */
 .ins-section { margin-bottom: 28px; }
-.ins-section-title { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; padding-bottom: 7px; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 8px; }
+.ins-section.collapsed { margin-bottom: 4px; }
+.ins-section-title { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; padding-bottom: 7px; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.ins-section.collapsed .ins-section-title { margin-bottom: 0; }
+.ins-section-title:hover { color: #1d4ed8; border-bottom-color: #bfdbfe; }
+.ins-section-title:hover .ins-sub { color: #93c5fd; }
 .ins-section-title .ins-sub { font-size: 11px; font-weight: 400; color: #9ca3af; }
+.ins-section-title .ins-chevron { font-size: 10px; color: #9ca3af; margin-left: auto; flex-shrink: 0; transition: transform .15s; }
+.ins-section.collapsed .ins-chevron { transform: rotate(-90deg); }
+.ins-section-body { }
+.ins-section.collapsed .ins-section-body { display: none; }
+.ins-tooltip { position: fixed; background: #1f2937; color: #fff; font-size: 11px; font-family: -apple-system,sans-serif; padding: 6px 10px; border-radius: 5px; pointer-events: none; white-space: nowrap; z-index: 9999; display: none; line-height: 1.5; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .ins-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 14px 16px; }
 .ins-heatmap-wrap { overflow-x: auto; }
 .hc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
@@ -271,6 +280,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <small>Absences · Shifts Worked · Shift Requests — all three at once</small>
   </div>
 </div>
+<div class="ins-tooltip" id="ins-tooltip"></div>
 <div class="workspace">
   <div class="sidebar">
     <div class="sidebar-label">Upload Reports</div>
@@ -479,6 +489,7 @@ const state = {
   mode: 'attendance',
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview', adjustForStartDate:true },
+  ins: { collapsed: {} }, // tracks which insight sections are collapsed by id
   overrides: new Set(),        // shift keys manually marked as worked
   omissions: new Set(),        // shift keys omitted from counts + history
   autocorrections: new Set(),  // shift keys auto-corrected by discrepancy fixer
@@ -1613,6 +1624,36 @@ function renderMain() {
   updateStickyOffsets(); requestAnimationFrame(updateStickyOffsets);
 }
 
+function toggleInsSection(id) {
+  state.ins.collapsed[id] = !state.ins.collapsed[id];
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('collapsed', !!state.ins.collapsed[id]);
+}
+
+function showInsTooltip(e, text) {
+  const tip = document.getElementById('ins-tooltip');
+  if (!tip) return;
+  tip.textContent = text;
+  tip.style.display = 'block';
+  positionInsTooltip(e, tip);
+}
+function positionInsTooltip(e, tip) {
+  tip = tip || document.getElementById('ins-tooltip');
+  if (!tip) return;
+  const pad = 12;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  // Keep within viewport
+  const tw = tip.offsetWidth || 200, th = tip.offsetHeight || 36;
+  if (x + tw > window.innerWidth  - 8) x = e.clientX - tw - pad;
+  if (y + th > window.innerHeight - 8) y = e.clientY - th - pad;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+function hideInsTooltip() {
+  const tip = document.getElementById('ins-tooltip');
+  if (tip) tip.style.display = 'none';
+}
+
 // ── Insights tab ──────────────────────────────────────────────────────────────
 function renderInsights() {
   const raw = state._lastBuilt && state._lastBuilt.rawShifts;
@@ -1785,12 +1826,15 @@ function renderInsights() {
       xLabels += `<text x="${xScale(i)}" y="${cH - mB + 14}" text-anchor="middle" font-size="9" fill="#9ca3af" font-family="-apple-system,sans-serif">${w.label}</text>`;
     });
 
-    // Dots + tooltips via <title>
+    // Dots with real tooltip handlers (SVG <title> is unreliable in Safari)
     let dots = '';
     wowData.forEach((w, i) => {
       const cx = xScale(i), cy = yScale(w.pct);
       const col = w.pct >= 90 ? '#16a34a' : w.pct >= 80 ? '#d97706' : '#dc2626';
-      dots += `<circle cx="${cx}" cy="${cy}" r="4" fill="${col}" stroke="#fff" stroke-width="1.5"><title>Week of ${w.label}: ${w.pct}% (${w.worked}/${w.assigned} clocked in, ${w.absences} absences)</title></circle>`;
+      const tip = `Week of ${w.label}: ${w.pct}% (${w.worked}/${w.assigned} clocked in, ${w.absences} absence${w.absences !== 1 ? 's' : ''})`;
+      dots += `<circle cx="${cx}" cy="${cy}" r="5" fill="${col}" stroke="#fff" stroke-width="1.5" style="cursor:pointer"
+        onmousemove="showInsTooltip(event,'${tip.replace(/'/g,'&#39;')}')"
+        onmouseleave="hideInsTooltip()"></circle>`;
     });
 
     // 80% threshold label
@@ -1882,6 +1926,82 @@ function renderInsights() {
   const totalMissed = orderedDays.reduce((s,d) => s + dowStats[d].missed, 0);
   const totalAbsences = orderedDays.reduce((s,d) => s + dowStats[d].absences, 0);
 
+  // ── 4. Lateness metrics ───────────────────────────────────────────────────
+  // Gather all late shifts across all employees from detailMap (lateMinutes stamped by enrichTimesheetTimes)
+  const latenessRows = [];
+  let totalLateShifts = 0, allLateMinutes = [];
+
+  for (const r of state.results) {
+    const key = normName(r.name);
+    const d = state.detailMap[key];
+    if (!d) continue;
+    const lateShifts = d.clockin.filter(s => {
+      if (!s.hasClock || s.lateMinutes === undefined) return false;
+      if (state.omissions.has(`${key}|${s.date}|${s.time}|${s.site}`)) return false;
+      return s.lateMinutes > LATE_THRESHOLD_MINUTES;
+    });
+    if (!lateShifts.length) continue;
+    const mins = lateShifts.map(s => s.lateMinutes);
+    const avgMin = Math.round(mins.reduce((a,b) => a+b, 0) / mins.length);
+    const maxMin = Math.max(...mins);
+    // Total clocked shifts for this employee (for late rate %)
+    const clockedShifts = d.clockin.filter(s =>
+      s.hasClock && s.lateMinutes !== undefined &&
+      !state.omissions.has(`${key}|${s.date}|${s.time}|${s.site}`)
+    );
+    const lateRate = clockedShifts.length > 0
+      ? Math.round(lateShifts.length / clockedShifts.length * 100) : 0;
+    latenessRows.push({ name: r.name, lateCount: lateShifts.length, avgMin, maxMin, lateRate, clockedTotal: clockedShifts.length });
+    totalLateShifts += lateShifts.length;
+    allLateMinutes.push(...mins);
+  }
+  latenessRows.sort((a,b) => b.lateCount - a.lateCount || b.avgMin - a.avgMin);
+
+  // Team-level lateness stats
+  const medianLateMin = (() => {
+    if (!allLateMinutes.length) return null;
+    const sorted = [...allLateMinutes].sort((a,b) => a-b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid-1]+sorted[mid])/2);
+  })();
+  const totalClockedTeam = state.results.reduce((sum, r) => {
+    const key = normName(r.name);
+    const d = state.detailMap[key];
+    if (!d) return sum;
+    return sum + d.clockin.filter(s =>
+      s.hasClock && s.lateMinutes !== undefined &&
+      !state.omissions.has(`${key}|${s.date}|${s.time}|${s.site}`)
+    ).length;
+  }, 0);
+  const teamLateRate = totalClockedTeam > 0 ? Math.round(totalLateShifts / totalClockedTeam * 100) : 0;
+  const avgLateTeam = allLateMinutes.length
+    ? Math.round(allLateMinutes.reduce((a,b) => a+b, 0) / allLateMinutes.length) : 0;
+
+  // Format minutes helper
+  function fmtMin(m) {
+    if (m === null || m === undefined) return '—';
+    return m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
+  }
+
+  // Inline bar for visual weight (max bar = widest lateCount)
+  const maxLateCount = latenessRows.length ? latenessRows[0].lateCount : 1;
+  const latenessTableRows = latenessRows.map(r => {
+    const barW = Math.round((r.lateCount / maxLateCount) * 80);
+    const rateCls = r.lateRate >= 40 ? 'c-red' : r.lateRate >= 20 ? 'c-warn' : '';
+    return `<tr>
+      <td class="left">${esc(r.name)}</td>
+      <td style="width:96px;padding-right:4px">
+        <div style="width:80px;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden;margin-left:auto">
+          <div style="width:${barW}px;height:100%;background:#7c3aed;border-radius:4px"></div>
+        </div>
+      </td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#7c3aed;font-weight:700;padding-left:0;width:36px">${r.lateCount}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#7c3aed">${fmtMin(r.avgMin)}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#6b7280">${fmtMin(r.maxMin)}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums" class="${rateCls}">${r.lateRate}%</td>
+    </tr>`;
+  }).join('');
+
   // ── Render ────────────────────────────────────────────────────────────────
   document.getElementById('main').innerHTML = `
   <div class="main-header">
@@ -1910,17 +2030,17 @@ function renderInsights() {
     </div>
   </div>
   <div class="main-scroll">
-    <div class="ins-section">
-      <div class="ins-section-title">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span></div>
-      <div class="ins-card ins-heatmap-wrap">${heatSVG}</div>
+    <div class="ins-section${state.ins.collapsed['ins-dow']?' collapsed':''}" id="ins-dow">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-dow')">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body"><div class="ins-card ins-heatmap-wrap">${heatSVG}</div></div>
     </div>
-    <div class="ins-section">
-      <div class="ins-section-title">Week-over-Week Attendance Trend <span class="ins-sub">team attendance % by ISO week · hover dots for detail</span></div>
-      <div class="ins-card">${wowSVG}</div>
+    <div class="ins-section${state.ins.collapsed['ins-wow']?' collapsed':''}" id="ins-wow">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-wow')">Week-over-Week Attendance Trend <span class="ins-sub">team attendance % by ISO week · hover dots for detail</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body"><div class="ins-card">${wowSVG}</div></div>
     </div>
-    <div class="ins-section">
-      <div class="ins-section-title">Half-Semester Attendance Comparison <span class="ins-sub">⚑ = dropped &ge;10 points &nbsp;·&nbsp; sorted worst decline first</span></div>
-      <div class="ins-card" style="padding:0">
+    <div class="ins-section${state.ins.collapsed['ins-half']?' collapsed':''}" id="ins-half">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-half')">Half-Semester Attendance Comparison <span class="ins-sub">⚑ = dropped &ge;10 points &nbsp;·&nbsp; sorted worst decline first</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body"><div class="ins-card" style="padding:0">
         <div style="overflow-x:auto">
           <table class="hc-table">
             <thead><tr>
@@ -1931,6 +2051,32 @@ function renderInsights() {
             </tr></thead>
             <tbody>${hcRows || '<tr><td colspan="4" style="color:#ccc;font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
           </table>
+        </div>
+      </div></div>
+    </div>
+    <div class="ins-section${state.ins.collapsed['ins-late']?' collapsed':''}" id="ins-late">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-late')">Lateness <span class="ins-sub">shifts clocked in &gt;${LATE_THRESHOLD_MINUTES}min after scheduled start · timesheets required</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body">
+        <div class="stats-row cols-4" style="margin-bottom:14px">
+          <div class="stat-card"><div class="val" style="color:#7c3aed">${totalLateShifts}</div><div class="lbl">Total Late Shifts</div></div>
+          <div class="stat-card"><div class="val" style="color:#7c3aed">${latenessRows.length}</div><div class="lbl">Employees with Late Shifts</div></div>
+          <div class="stat-card"><div class="val" style="color:#7c3aed">${fmtMin(medianLateMin)}</div><div class="lbl">Median Lateness</div></div>
+          <div class="stat-card"><div class="val" style="color:#7c3aed">${teamLateRate}%</div><div class="lbl">of Clocked Shifts Late</div></div>
+        </div>
+        <div class="ins-card" style="padding:0">
+          <div style="overflow-x:auto">
+            <table class="hc-table">
+              <thead><tr>
+                <th class="left" style="min-width:180px">Employee</th>
+                <th style="width:96px"></th>
+                <th style="width:36px;text-align:right;padding-left:0">Late</th>
+                <th style="min-width:90px;text-align:right">Avg Late</th>
+                <th style="min-width:90px;text-align:right">Worst Late</th>
+                <th style="min-width:80px;text-align:right">Late Rate</th>
+              </tr></thead>
+              <tbody>${latenessTableRows || '<tr><td colspan="6" style="color:#ccc;font-style:italic;text-align:center;padding:20px">No late shifts recorded — timesheets may not be loaded</td></tr>'}</tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
