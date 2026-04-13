@@ -494,7 +494,7 @@ const state = {
   mode: 'attendance',
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview', adjustForStartDate:true },
-  ins: { collapsed: {}, empGridMetric: 'missRate',
+  ins: { collapsed: {}, empGridMetric: 'missCount',
     halfSort:   { col: 'delta',      asc: true  },
     lateSort:   { col: 'lateCount',  asc: false },
     noticeSort: { col: 'median',     asc: true  },
@@ -1801,9 +1801,51 @@ function renderInsights() {
 
   // Build the grid HTML — metric toggled via inline onclick updating a data attr + re-rendering cells
   // We embed all three metric values in data attrs so toggling is instant without re-running renderInsights
-  const empGridMetric = state.ins.empGridMetric || 'missRate';
+  const empGridMetric = state.ins.empGridMetric || 'missCount';
   state.ins.empGridMetric = empGridMetric;
 
+  // For missRate display: return the raw bucket so displayVal can access assigned count
+  // empGridCellVal returns { rate, missed, assigned } for missRate, number for others
+  function empGridCellVal(nameKey, dow, metric) {
+    const b = (empDowGrid[nameKey] || {})[dow] || { assigned:0, missed:0, absences:0 };
+    if (metric === 'missRate') {
+      if (b.assigned === 0) return null;
+      return { rate: b.missed / b.assigned, missed: b.missed, assigned: b.assigned };
+    }
+    if (metric === 'missCount') return b.missed > 0 ? b.missed : null;
+    return b.absences > 0 ? b.absences : null;
+  }
+
+  // For normalization, missRate uses the raw rate number
+  function empGridSortVal(v, metric) {
+    if (v === null || v === undefined) return 0;
+    if (metric === 'missRate') return v.rate;
+    return v;
+  }
+
+  function empGridDisplayVal(v, metric) {
+    if (v === null || v === undefined) return '—';
+    if (metric === 'missRate') {
+      // Show fraction instead of % when assigned < 3 (thin data)
+      if (v.assigned < 3) return `${v.missed}/${v.assigned}`;
+      return Math.round(v.rate * 100) + '%';
+    }
+    return v;
+  }
+
+  function empGridHeatColor(v, max, metric) {
+    if (v === null || v === undefined || max === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
+    const raw = metric === 'missRate' ? v.rate : v;
+    if (raw === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
+    // Thin data in missRate mode (< 3 assigned): use a muted amber instead of full heat scale
+    // so a single missed shift doesn't render as alarming red
+    if (metric === 'missRate' && v.assigned < 3 && v.missed > 0) {
+      return { bg: '#fef3c7', text: '#92400e' };
+    }
+    const bg = heatColor(raw, max);
+    const t = Math.min(1, raw / max);
+    return { bg, text: t > 0.55 ? '#fff' : '#111' };
+  }
   // Per-DOW max across all employees for each metric (for normalization)
   const gridDayMax = { missRate:{}, missCount:{}, absCount:{} };
   orderedDays.forEach(dow => {
@@ -1822,27 +1864,6 @@ function renderInsights() {
     }, { assigned:0, missed:0, absences:0 });
     return tot;
   });
-
-  function empGridCellVal(nameKey, dow, metric) {
-    const b = (empDowGrid[nameKey] || {})[dow] || { assigned:0, missed:0, absences:0 };
-    if (metric === 'missRate') return b.assigned > 0 ? b.missed / b.assigned : null;
-    if (metric === 'missCount') return b.missed > 0 ? b.missed : null;
-    return b.absences > 0 ? b.absences : null;
-  }
-
-  function empGridDisplayVal(v, metric) {
-    if (v === null || v === undefined) return '—';
-    if (metric === 'missRate') return Math.round(v * 100) + '%';
-    return v;
-  }
-
-  function empGridHeatColor(v, max, metric) {
-    if (v === null || v === undefined || max === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
-    if (v === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
-    const bg = heatColor(v, max);
-    const t = Math.min(1, v / max);
-    return { bg, text: t > 0.55 ? '#fff' : '#111' };
-  }
 
   // Build sorted employee list — only those with at least one shift
   const gridEmps = (state.results || []).filter(r => empDowGrid[normName(r.name)]);
@@ -1870,7 +1891,7 @@ function renderInsights() {
         const mr = empGridCellVal(nameKey, dow, 'missRate');
         const mc = empGridCellVal(nameKey, dow, 'missCount');
         const ac = empGridCellVal(nameKey, dow, 'absCount');
-        const tip = `${r.name} · ${dow}: ${mr !== null ? Math.round(mr*100)+'% miss rate' : 'no shifts'}, ${mc||0} missed, ${ac||0} absences`;
+        const tip = `${r.name} · ${dow}: ${mr !== null ? (mr.assigned < 3 ? mr.missed+'/'+mr.assigned : Math.round(mr.rate*100)+'%')+' miss rate' : 'no shifts'}, ${mc||0} missed, ${ac||0} absences`;
         return `<td style="padding:3px 4px;border-bottom:1px solid #f0f0ee">
           <div style="width:68px;height:28px;border-radius:5px;background:${c.bg};color:${c.text};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:11px;margin:0 auto;cursor:default"
             onmousemove="showInsTooltip(event,'${tip.replace(/'/g,"&#39;")}')" onmouseleave="hideInsTooltip()">${dv}</div>
