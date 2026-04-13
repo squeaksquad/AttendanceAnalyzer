@@ -225,6 +225,23 @@ tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae
 .pcc-dot.bad { background: #ef4444; }
 
 .error-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #dc2626; margin-bottom: 14px; }
+
+/* ── Insights tab ── */
+.ins-section { margin-bottom: 28px; }
+.ins-section-title { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; padding-bottom: 7px; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 8px; }
+.ins-section-title .ins-sub { font-size: 11px; font-weight: 400; color: #9ca3af; }
+.ins-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 14px 16px; }
+.ins-heatmap-wrap { overflow-x: auto; }
+.hc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.hc-table th { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; padding: 5px 10px; text-align: right; border-bottom: 2px solid #e5e7eb; background: #f9fafb; }
+.hc-table th.left { text-align: left; }
+.hc-table td { padding: 6px 10px; border-bottom: 1px solid #f0f0ee; text-align: right; font-variant-numeric: tabular-nums; }
+.hc-table td.left { text-align: left; font-weight: 600; color: #111; }
+.hc-table tr:last-child td { border-bottom: none; }
+.hc-table .delta-pos { color: #16a34a; font-weight: 700; }
+.hc-table .delta-neg { color: #dc2626; font-weight: 700; }
+.hc-table .delta-neu { color: #9ca3af; }
+.hc-table tr.hc-flagged td.left::after { content: ' ⚑'; color: #dc2626; font-size: 10px; }
 .offset-select { width: 100%; padding: 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; outline: none; cursor: pointer; color: #111; }
 .details-arrow { display: inline-block; font-size: 9px; transition: transform .15s; }
 details[open] > summary .details-arrow { transform: rotate(90deg); }
@@ -244,6 +261,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
   <div class="mode-tabs">
     <button class="mode-tab active" onclick="setMode('attendance')" id="tab-att">Attendance</button>
     <button class="mode-tab" onclick="setMode('prepclosing')" id="tab-pc">Prep &amp; Closing Shifts</button>
+    <button class="mode-tab" onclick="setMode('insights')" id="tab-ins">Insights</button>
   </div>
 </header>
 
@@ -991,8 +1009,17 @@ function _analyzeInner() {
 
     // ── Step 6: Build P&C data with closures and corrections factored in ──
     state.prepCloseData = buildPrepCloseData(built.rawShifts, built.mergedShifts, built.allResults, totalWeeks);
-    // Cache for toggle re-builds (e.g. adjustForStartDate) without full re-analyze
-    state._lastBuilt = { rawShifts: built.rawShifts, mergedShifts: built.mergedShifts, allResults: built.allResults, totalWeeks };
+    // Cache for toggle re-builds (e.g. adjustForStartDate) without full re-analyze.
+    // Also compute period1MaxMs: the latest shift date from Period 1 data only,
+    // used as the default midpoint split in the Insights tab.
+    let period1MaxMs = null;
+    if (state.clockin && state.clockin.length) {
+      for (const row of state.clockin) {
+        const ms = shiftDateToMs(row['Start Date']);
+        if (ms !== null && (period1MaxMs === null || ms > period1MaxMs)) period1MaxMs = ms;
+      }
+    }
+    state._lastBuilt = { rawShifts: built.rawShifts, mergedShifts: built.mergedShifts, allResults: built.allResults, totalWeeks, period1MaxMs };
 
     state.closuresDirty = false;
     renderClosuresSidebar();
@@ -1580,9 +1607,336 @@ function setMode(mode) {
 function renderMain() {
   if(!state.results) return;
   if(state.mode==='attendance') renderAttendance();
+  else if(state.mode==='insights') renderInsights();
   else renderPrepClose();
   // Let the DOM paint first, then measure real heights
   updateStickyOffsets(); requestAnimationFrame(updateStickyOffsets);
+}
+
+// ── Insights tab ──────────────────────────────────────────────────────────────
+function renderInsights() {
+  const raw = state._lastBuilt && state._lastBuilt.rawShifts;
+  if (!raw || !raw.length) {
+    document.getElementById('main').innerHTML = '<div class="empty-state"><div class="big">📊</div><p>Run analysis first to see insights.</p></div>';
+    return;
+  }
+
+  // ── Shared date math ──────────────────────────────────────────────────────
+  const { fromMs, toMs } = getDateFilterMs();
+
+  // Default midpoint = end of Period 1 data (if available), else true midpoint
+  const defaultMidMs = state._lastBuilt.period1MaxMs
+    || (fromMs && toMs ? Math.round((fromMs + toMs) / 2) : null);
+  const defaultMidISO = defaultMidMs ? new Date(defaultMidMs).toISOString().slice(0,10) : '';
+
+  const midEl = document.getElementById('ins-midpoint-input');
+  // On first render, seed the input with the default; on subsequent renders keep user's value
+  if (midEl && !midEl.dataset.userSet && defaultMidISO) midEl.value = defaultMidISO;
+  const midISO = (midEl && midEl.value) ? midEl.value : defaultMidISO;
+  const midMs  = midISO ? new Date(midISO + 'T12:00:00Z').getTime() : null;
+
+  const dateToISO = ms => new Date(ms).toISOString().slice(0,10);
+  const fmtShort  = iso => {
+    const d = new Date(iso + 'T12:00:00Z');
+    return d.toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+  };
+
+  const MONTHS_MAP = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  const MONTHS_PAD = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+  function fmtDateToISO(dateStr) {
+    const m = dateStr && dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!m) return null;
+    return `${m[3]}-${MONTHS_PAD[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+  }
+
+  // ── 1. DOW heat map data ──────────────────────────────────────────────────
+  const dowStats = {};
+  DAYS.forEach(d => dowStats[d] = { assigned: 0, missed: 0, absences: 0 });
+
+  for (const s of raw) {
+    if (!s.dow || !dowStats[s.dow]) continue;
+    const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
+    if (state.omissions && state.omissions.has(oKey)) continue;
+    dowStats[s.dow].assigned++;
+    if (!s.hasClock) dowStats[s.dow].missed++;
+  }
+  for (const nameKey of Object.keys(state.detailMap || {})) {
+    for (const a of (state.detailMap[nameKey].absences || [])) {
+      const m = a.date && a.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+      if (!m) continue;
+      const dow = DAYS[new Date(parseInt(m[3]), MONTHS_MAP[m[1]], parseInt(m[2])).getDay()];
+      if (dow && dowStats[dow]) dowStats[dow].absences++;
+    }
+  }
+
+  // Build SVG heat map — Mon through Sun
+  const orderedDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const maxMissed = Math.max(1, ...orderedDays.map(d => dowStats[d].missed + dowStats[d].absences));
+
+  function heatColor(v, max) {
+    if (max === 0 || v === 0) return '#f0fdf4';
+    const t = Math.min(1, v / max);
+    if (t < 0.4) {
+      const u = t / 0.4;
+      return `rgb(${Math.round(220+35*u)},${Math.round(252-100*u)},${Math.round(220-180*u)})`;
+    }
+    if (t < 0.7) {
+      const u = (t - 0.4) / 0.3;
+      return `rgb(255,${Math.round(152-80*u)},${Math.round(40-40*u)})`;
+    }
+    const u = (t - 0.7) / 0.3;
+    return `rgb(${Math.round(255-55*u)},${Math.round(72-52*u)},${Math.round(20*u)})`;
+  }
+
+  const cellW = 90, cellH = 66, padX = 8, padY = 4;
+  const svgW = 7 * cellW + padX * 2, svgH = cellH + padY * 2 + 32;
+  let cells = '';
+  orderedDays.forEach((day, i) => {
+    const st = dowStats[day];
+    const total = st.missed + st.absences;
+    const x = padX + i * cellW, y = padY + 32;
+    const bg = heatColor(total, maxMissed);
+    const intense = total / maxMissed;
+    const textCol = intense > 0.55 ? '#fff' : '#111';
+    const subCol  = intense > 0.55 ? 'rgba(255,255,255,0.82)' : '#6b7280';
+    const pct = st.assigned > 0 ? Math.round(((st.assigned - st.missed) / st.assigned) * 100) : null;
+    cells += `
+      <rect x="${x+1}" y="${y}" width="${cellW-2}" height="${cellH-2}" rx="5" fill="${bg}"/>
+      <text x="${x+cellW/2}" y="${y+14}" text-anchor="middle" font-size="9" font-weight="700" fill="${textCol}" font-family="-apple-system,sans-serif" letter-spacing="0.07em">${day.slice(0,3).toUpperCase()}</text>
+      <text x="${x+cellW/2}" y="${y+35}" text-anchor="middle" font-size="22" font-weight="700" fill="${textCol}" font-family="-apple-system,sans-serif">${total}</text>
+      <text x="${x+cellW/2}" y="${y+48}" text-anchor="middle" font-size="9.5" fill="${subCol}" font-family="-apple-system,sans-serif">missed/absent</text>
+      <text x="${x+cellW/2}" y="${y+61}" text-anchor="middle" font-size="9.5" fill="${subCol}" font-family="-apple-system,sans-serif">${pct !== null ? 'att: ' + pct + '%' : ''}</text>`;
+  });
+  const heatSVG = `<svg viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${svgW}px;display:block">
+    <text x="${padX}" y="20" font-size="9" font-weight="700" fill="#9ca3af" font-family="-apple-system,sans-serif" letter-spacing="0.08em">MISSED CLOCK-INS + ABSENCES BY DAY OF WEEK</text>
+    ${cells}
+  </svg>`;
+
+  // ── 2. Week-over-week trend chart ─────────────────────────────────────────
+  // Bucket every rawShift into ISO week (Mon-anchored). Compute att% per week.
+  function isoWeekStart(ms) {
+    const d = new Date(ms);
+    const day = d.getUTCDay(); // 0=Sun
+    const diff = (day === 0 ? -6 : 1 - day); // shift to Monday
+    const mon = new Date(d);
+    mon.setUTCDate(d.getUTCDate() + diff);
+    mon.setUTCHours(0,0,0,0);
+    return mon.getTime();
+  }
+
+  const weekBuckets = {}; // weekStartMs -> { assigned, worked, absences }
+  for (const s of raw) {
+    const ms = shiftDateToMs(s.dateVal);
+    if (ms === null) continue;
+    const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
+    if (state.omissions && state.omissions.has(oKey)) continue;
+    const wk = isoWeekStart(ms);
+    if (!weekBuckets[wk]) weekBuckets[wk] = { assigned: 0, worked: 0, absences: 0 };
+    weekBuckets[wk].assigned++;
+    if (s.hasClock) weekBuckets[wk].worked++;
+  }
+  // Add absences into their week bucket
+  for (const nameKey of Object.keys(state.detailMap || {})) {
+    for (const a of (state.detailMap[nameKey].absences || [])) {
+      const iso = fmtDateToISO(a.date);
+      if (!iso) continue;
+      const ms = new Date(iso + 'T12:00:00Z').getTime();
+      const wk = isoWeekStart(ms);
+      if (weekBuckets[wk]) weekBuckets[wk].absences++;
+    }
+  }
+
+  const weekKeys = Object.keys(weekBuckets).map(Number).sort((a,b) => a - b);
+  const wowData = weekKeys.map(wk => {
+    const b = weekBuckets[wk];
+    const pct = b.assigned > 0 ? Math.round(b.worked / b.assigned * 100) : null;
+    const label = new Date(wk).toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+    return { wk, pct, assigned: b.assigned, worked: b.worked, absences: b.absences, label };
+  }).filter(w => w.pct !== null);
+
+  // Build SVG line chart
+  let wowSVG = '';
+  if (wowData.length >= 2) {
+    const cW = 700, cH = 160, mL = 40, mR = 16, mT = 12, mB = 36;
+    const plotW = cW - mL - mR, plotH = cH - mT - mB;
+    const n = wowData.length;
+    const xScale = i => mL + (i / (n - 1)) * plotW;
+    const yScale = v => mT + plotH - (v / 100) * plotH;
+
+    // Gridlines at 60, 70, 80, 90, 100
+    let grid = '', yLabels = '';
+    [60, 70, 80, 90, 100].forEach(v => {
+      const y = yScale(v);
+      const isEighty = v === 80;
+      grid += `<line x1="${mL}" y1="${y}" x2="${cW-mR}" y2="${y}" stroke="${isEighty ? '#fca5a5' : '#f0f0ee'}" stroke-width="${isEighty ? 1.5 : 1}" stroke-dasharray="${isEighty ? '4,3' : ''}"/>`;
+      yLabels += `<text x="${mL-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9ca3af" font-family="-apple-system,sans-serif">${v}%</text>`;
+    });
+
+    // Filled area under line
+    const pts = wowData.map((w,i) => `${xScale(i)},${yScale(w.pct)}`);
+    const areaPath = `M${xScale(0)},${yScale(0)} L${pts.join(' L')} L${xScale(n-1)},${yScale(0)} Z`;
+    const linePath = `M${pts.join(' L')}`;
+
+    // X-axis labels — show every Nth label to avoid crowding
+    const step = Math.max(1, Math.ceil(n / 10));
+    let xLabels = '';
+    wowData.forEach((w, i) => {
+      if (i % step !== 0 && i !== n-1) return;
+      xLabels += `<text x="${xScale(i)}" y="${cH - mB + 14}" text-anchor="middle" font-size="9" fill="#9ca3af" font-family="-apple-system,sans-serif">${w.label}</text>`;
+    });
+
+    // Dots + tooltips via <title>
+    let dots = '';
+    wowData.forEach((w, i) => {
+      const cx = xScale(i), cy = yScale(w.pct);
+      const col = w.pct >= 90 ? '#16a34a' : w.pct >= 80 ? '#d97706' : '#dc2626';
+      dots += `<circle cx="${cx}" cy="${cy}" r="4" fill="${col}" stroke="#fff" stroke-width="1.5"><title>Week of ${w.label}: ${w.pct}% (${w.worked}/${w.assigned} clocked in, ${w.absences} absences)</title></circle>`;
+    });
+
+    // 80% threshold label
+    const eightyY = yScale(80);
+
+    wowSVG = `<svg viewBox="0 0 ${cW} ${cH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+      <text x="${mL}" y="10" font-size="9" font-weight="700" fill="#9ca3af" font-family="-apple-system,sans-serif" letter-spacing="0.08em">TEAM ATTENDANCE % — WEEK OVER WEEK</text>
+      ${grid}
+      ${yLabels}
+      ${xLabels}
+      <text x="${cW-mR}" y="${eightyY - 4}" text-anchor="end" font-size="8" fill="#fca5a5" font-family="-apple-system,sans-serif">80% threshold</text>
+      <defs>
+        <linearGradient id="wow-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+        </linearGradient>
+      </defs>
+      <path d="${areaPath}" fill="url(#wow-fill)"/>
+      <path d="${linePath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+    </svg>`;
+  } else if (wowData.length === 1) {
+    wowSVG = `<div style="font-size:12px;color:#9ca3af;font-style:italic;padding:12px 0">Only one week of data — need at least two weeks for a trend.</div>`;
+  } else {
+    wowSVG = `<div style="font-size:12px;color:#9ca3af;font-style:italic;padding:12px 0">No week data available.</div>`;
+  }
+
+  // ── 3. Half-semester compare ──────────────────────────────────────────────
+  const halfRows = [];
+  if (midMs && state.results) {
+    const pfdISO = state.penaltyFreeDays;
+    for (const r of state.results) {
+      const key = normName(r.name);
+      const d = state.detailMap[key];
+      if (!d) continue;
+      const active = d.clockin.filter(s =>
+        !state.omissions.has(`${key}|${s.date}|${s.time}|${s.site}`)
+      );
+      function halfPct(beforeMid) {
+        const filtered = active.filter(s => {
+          const iso = fmtDateToISO(s.date);
+          if (!iso) return false;
+          return beforeMid ? iso < midISO : iso >= midISO;
+        });
+        const scored = filtered.filter(s => {
+          const iso = fmtDateToISO(s.date);
+          return !(iso && pfdISO.has(iso) && !s.hasClock);
+        });
+        if (!scored.length) return null;
+        return Math.round(scored.filter(s => s.hasClock).length / scored.length * 100);
+      }
+      const pct1 = halfPct(true);
+      const pct2 = halfPct(false);
+      const delta = (pct1 !== null && pct2 !== null) ? pct2 - pct1 : null;
+      halfRows.push({ name: r.name, pct1, pct2, delta });
+    }
+    halfRows.sort((a, b) => {
+      if (a.delta === null && b.delta === null) return a.name.localeCompare(b.name);
+      if (a.delta === null) return 1;
+      if (b.delta === null) return -1;
+      return a.delta - b.delta; // worst declines first
+    });
+  }
+
+  const midLabel1 = (fromMs && midMs)
+    ? `${fmtShort(dateToISO(fromMs))} – ${fmtShort(dateToISO(midMs - 86400000))}`
+    : 'First Half';
+  const midLabel2 = (midMs && toMs)
+    ? `${fmtShort(dateToISO(midMs))} – ${fmtShort(dateToISO(toMs))}`
+    : 'Second Half';
+
+  const hcRows = halfRows.map(r => {
+    const p1 = r.pct1 !== null ? r.pct1 + '%' : '—';
+    const p2 = r.pct2 !== null ? r.pct2 + '%' : '—';
+    const dCls = r.delta === null ? 'delta-neu'
+               : r.delta > 0    ? 'delta-pos'
+               : r.delta < 0    ? 'delta-neg'
+               : 'delta-neu';
+    const dTxt = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta + '%';
+    const flagged = r.delta !== null && r.delta <= -10;
+    return `<tr${flagged ? ' class="hc-flagged"' : ''}>
+      <td class="left">${esc(r.name)}</td>
+      <td>${p1}</td><td>${p2}</td>
+      <td class="${dCls}">${dTxt}</td>
+    </tr>`;
+  }).join('');
+
+  const decliningCount = halfRows.filter(r => r.delta !== null && r.delta <= -10).length;
+  const totalMissed = orderedDays.reduce((s,d) => s + dowStats[d].missed, 0);
+  const totalAbsences = orderedDays.reduce((s,d) => s + dowStats[d].absences, 0);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  document.getElementById('main').innerHTML = `
+  <div class="main-header">
+    <div class="stats-sticky"><div class="stats-row cols-4">
+      <div class="stat-card"><div class="val">${state.results.length}</div><div class="lbl">Employees</div></div>
+      <div class="stat-card"><div class="val">${totalMissed}</div><div class="lbl">Total Missed Clock-Ins</div></div>
+      <div class="stat-card"><div class="val">${totalAbsences}</div><div class="lbl">Total Absences</div></div>
+      <div class="stat-card"><div class="val red">${decliningCount}</div><div class="lbl">Declining &ge;10pts (2nd half)</div></div>
+    </div></div>
+  </div>
+  <div class="filter-bar-sticky">
+    <div class="filter-row">
+      <label style="font-size:11px;font-weight:600;color:#555">Split date:</label>
+      <input type="date" id="ins-midpoint-input" value="${midISO}"
+        onchange="this.dataset.userSet='1'; renderInsights()"
+        style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;padding:4px 8px;color:#374151">
+      <button onclick="
+        var el=document.getElementById('ins-midpoint-input');
+        el.value='${defaultMidISO}';
+        delete el.dataset.userSet;
+        renderInsights()"
+        style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">
+        Reset to P1 end
+      </button>
+      <span style="font-size:11px;color:#9ca3af">&nbsp;${midLabel1} vs ${midLabel2}</span>
+    </div>
+  </div>
+  <div class="main-scroll">
+    <div class="ins-section">
+      <div class="ins-section-title">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span></div>
+      <div class="ins-card ins-heatmap-wrap">${heatSVG}</div>
+    </div>
+    <div class="ins-section">
+      <div class="ins-section-title">Week-over-Week Attendance Trend <span class="ins-sub">team attendance % by ISO week · hover dots for detail</span></div>
+      <div class="ins-card">${wowSVG}</div>
+    </div>
+    <div class="ins-section">
+      <div class="ins-section-title">Half-Semester Attendance Comparison <span class="ins-sub">⚑ = dropped &ge;10 points &nbsp;·&nbsp; sorted worst decline first</span></div>
+      <div class="ins-card" style="padding:0">
+        <div style="overflow-x:auto">
+          <table class="hc-table">
+            <thead><tr>
+              <th class="left" style="min-width:180px">Employee</th>
+              <th style="min-width:100px">${midLabel1}</th>
+              <th style="min-width:100px">${midLabel2}</th>
+              <th style="min-width:80px">&Delta; Change</th>
+            </tr></thead>
+            <tbody>${hcRows || '<tr><td colspan="4" style="color:#ccc;font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  updateStickyOffsets();
+  requestAnimationFrame(updateStickyOffsets);
 }
 
 // ── Attendance mode ───────────────────────────────────────────────────────────
@@ -3512,7 +3866,8 @@ function exportSnapshot() {
       document.querySelectorAll('.mode-tab').forEach(function(t) {
         var tid = t.id || '';
         var active = (d.activeMode === 'prepclosing' && tid === 'tab-pc') ||
-                     (d.activeMode === 'attendance' && tid === 'tab-att');
+                     (d.activeMode === 'attendance'  && tid === 'tab-att') ||
+                     (d.activeMode === 'insights'    && tid === 'tab-ins');
         t.classList.toggle('active', active);
       });
     }
@@ -3552,6 +3907,8 @@ function exportSnapshot() {
     }
     if (d.activeMode === 'prepclosing') {
       if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
+    } else if (d.activeMode === 'insights') {
+      if (typeof renderInsights === 'function') renderInsights();
     } else {
       if (typeof renderAttRows === 'function') renderAttRows();
     }
