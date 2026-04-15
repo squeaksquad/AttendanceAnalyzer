@@ -2051,23 +2051,47 @@ function renderInsights() {
       const active = d.clockin.filter(s =>
         !state.omissions.has(`${key}|${s.date}|${s.time}|${s.site}`)
       );
+      // Picked-up shifts live in d.shifts with type='pickup'; they always count as worked.
+      const pickedUpAll = (d.shifts || []).filter(s => s.type === 'pickup');
+      // Covered drops (assignee's own drops that were filled) — have acceptedBy set.
+      // Used for strictDrops penalty, split by half so each half is isolated.
+      const coveredDropsAll = (d.shifts || []).filter(s =>
+        (s.type === 'drop' || s.type === 'swap') && s.acceptedBy
+      );
       function halfPct(beforeMid) {
-        const filtered = active.filter(s => {
+        // Own assigned shifts in this half (excluding PFD misses from denominator)
+        const halfOwn = active.filter(s => {
           const iso = fmtDateToISO(s.date);
           if (!iso) return false;
           return beforeMid ? iso < midISO : iso >= midISO;
         });
-        const scored = filtered.filter(s => {
+        const scored = halfOwn.filter(s => {
           const iso = fmtDateToISO(s.date);
           return !(iso && pfdISO.has(iso) && !s.hasClock);
         });
-        if (!scored.length) return null;
-        return Math.round(scored.filter(s => s.hasClock).length / scored.length * 100);
+        // Picked-up shifts in this half (always hasClock=true)
+        const halfPickedUp = pickedUpAll.filter(s => {
+          const iso = fmtDateToISO(s.date);
+          if (!iso) return false;
+          return beforeMid ? iso < midISO : iso >= midISO;
+        });
+        const pickedUpCount = halfPickedUp.length;
+        // Covered-drop penalty: only count drops that fall in this half
+        const halfCoveredDrops = state.strictDrops ? coveredDropsAll.filter(s => {
+          const iso = fmtDateToISO(s.date);
+          if (!iso) return false;
+          return beforeMid ? iso < midISO : iso >= midISO;
+        }).length : 0;
+        // Mirror main formula: worked=(assigned_clocked + pickedUp), total=(scored + pickedUp + coveredPenalty)
+        const totalAssigned = scored.length + pickedUpCount + halfCoveredDrops;
+        if (!totalAssigned) return null;
+        const worked = scored.filter(s => s.hasClock).length + pickedUpCount;
+        return Math.round(worked / totalAssigned * 100);
       }
       const pct1 = halfPct(true);
       const pct2 = halfPct(false);
       const delta = (pct1 !== null && pct2 !== null) ? pct2 - pct1 : null;
-      halfRows.push({ name: r.name, pct1, pct2, delta });
+      halfRows.push({ name: r.name, pct1, pct2, delta, pctTotal: r.pct });
     }
     halfRows.sort((a, b) => {
       const _hs = state.ins.halfSort;
@@ -2096,10 +2120,13 @@ function renderInsights() {
                : 'delta-neu';
     const dTxt = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta + '%';
     const flagged = r.delta !== null && r.delta <= -10;
+    const totTxt = r.pctTotal !== null && r.pctTotal !== undefined ? r.pctTotal + '%' : '—';
+    const totCls = r.pctTotal === null || r.pctTotal === undefined ? '' : r.pctTotal < 80 ? ' style="color:#dc2626;font-weight:600"' : '';
     return `<tr${flagged ? ' class="hc-flagged"' : ''}>
       <td class="left">${esc(r.name)}</td>
       <td>${p1}</td><td>${p2}</td>
       <td class="${dCls}">${dTxt}</td>
+      <td${totCls}>${totTxt}</td>
     </tr>`;
   }).join('');
 
@@ -2321,23 +2348,7 @@ function renderInsights() {
       <div class="stat-card"><div class="val red">${decliningCount}</div><div class="lbl">Declining &ge;10pts (2nd half)</div></div>
     </div></div>
   </div>
-  <div class="filter-bar-sticky">
-    <div class="filter-row">
-      <label style="font-size:11px;font-weight:600;color:#555">Split date:</label>
-      <input type="date" id="ins-midpoint-input" value="${midISO}"
-        onchange="this.dataset.userSet='1'; renderInsights()"
-        style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;padding:4px 8px;color:#374151">
-      <button onclick="
-        var el=document.getElementById('ins-midpoint-input');
-        el.value='${defaultMidISO}';
-        delete el.dataset.userSet;
-        renderInsights()"
-        style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">
-        Reset to P1 end
-      </button>
-      <span style="font-size:11px;color:#9ca3af">&nbsp;${midLabel1} vs ${midLabel2}</span>
-    </div>
-  </div>
+
   <div class="main-scroll">
     <div class="ins-section${state.ins.collapsed['ins-dow']?' collapsed':''}" id="ins-dow">
       <div class="ins-section-title" onclick="toggleInsSection('ins-dow')">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span><span class="ins-chevron">▼</span></div>
@@ -2362,7 +2373,23 @@ function renderInsights() {
     </div>
     <div class="ins-section${state.ins.collapsed['ins-half']?' collapsed':''}" id="ins-half">
       <div class="ins-section-title" onclick="toggleInsSection('ins-half')">Half-Semester Attendance Comparison <span class="ins-sub">⚑ = dropped &ge;10 points &nbsp;·&nbsp; click headers to sort</span><span class="ins-chevron">▼</span></div>
-      <div class="ins-section-body"><div class="ins-card" style="padding:0">
+      <div class="ins-section-body">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <label style="font-size:11px;font-weight:600;color:#555">Split date:</label>
+          <input type="date" id="ins-midpoint-input" value="${midISO}"
+            onchange="this.dataset.userSet='1'; renderInsights()"
+            style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;padding:4px 8px;color:#374151">
+          <button onclick="
+            var el=document.getElementById('ins-midpoint-input');
+            el.value='${defaultMidISO}';
+            delete el.dataset.userSet;
+            renderInsights()"
+            style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">
+            Reset to P1 end
+          </button>
+          <span style="font-size:11px;color:#9ca3af">${midLabel1} vs ${midLabel2}</span>
+        </div>
+        <div class="ins-card" style="padding:0">
         <div style="overflow-x:auto">
           <table class="hc-table">
             <thead><tr>
@@ -2370,11 +2397,13 @@ function renderInsights() {
               <th class="sortable${_hs.col==='pct1'?' sorted':''}" style="min-width:100px" onclick="sortInsTable('half','pct1')">${midLabel1}</th>
               <th class="sortable${_hs.col==='pct2'?' sorted':''}" style="min-width:100px" onclick="sortInsTable('half','pct2')">${midLabel2}</th>
               <th class="sortable${_hs.col==='delta'?' sorted':''}" style="min-width:80px" onclick="sortInsTable('half','delta')">&Delta; Change</th>
+              <th class="sortable${_hs.col==='pctTotal'?' sorted':''}" style="min-width:80px" onclick="sortInsTable('half','pctTotal')">Total</th>
             </tr></thead>
-            <tbody>${hcRows || '<tr><td colspan="4" style="color:#ccc;font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
+            <tbody>${hcRows || '<tr><td colspan="5" style="color:#ccc;font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
           </table>
         </div>
-      </div></div>
+        </div>
+      </div>
     </div>
     <div class="ins-section${state.ins.collapsed['ins-late']?' collapsed':''}" id="ins-late">
       <div class="ins-section-title" onclick="toggleInsSection('ins-late')">Lateness <span class="ins-sub">shifts clocked in &gt;${LATE_THRESHOLD_MINUTES}min after scheduled start · timesheets required</span><span class="ins-chevron">▼</span></div>
