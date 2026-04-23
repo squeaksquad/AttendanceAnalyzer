@@ -4545,7 +4545,9 @@ function exportReport() {
 }
 
 // ── GitHub Push — Worker Portal ───────────────────────────────────────────────
-const GITHUB_TOKEN_KEY = 'studio_github_token';
+// PAT is held server-side in the Cloudflare Worker. Only a push secret lives here.
+const PUSH_WORKER_URL  = 'https://github-push-worker.bryan-dimaio.workers.dev'; // ← set after deploying worker
+const PUSH_SECRET      = '6eeee075da251edd59eeaf62d63bd5b79b1f905d1782bb25fd3f92d70d3f7242';                  // ← match PUSH_SECRET env var in Worker
 const WORKER_EMAILS_KEY = 'studio_worker_emails';
 
 function openGitHubPushModal() {
@@ -4553,9 +4555,28 @@ function openGitHubPushModal() {
   const modal = document.getElementById('github-push-modal');
   if (!modal) return;
 
-  // Load saved token
-  const savedToken = localStorage.getItem(GITHUB_TOKEN_KEY) || '';
-  document.getElementById('gh-token-input').value = savedToken;
+  // Build manager list from Users report
+  const managerSelect = document.getElementById('gh-manager-select');
+  const managerWarn   = document.getElementById('gh-manager-warn');
+  managerSelect.innerHTML = '<option value="">— Select your name —</option>';
+
+  const managers = state.userMap
+    ? Object.values(state.userMap).filter(u => u.role === 'manager')
+    : [];
+
+  if (managers.length === 0) {
+    managerWarn.style.display = 'block';
+    document.getElementById('gh-push-btn').disabled = true;
+  } else {
+    managerWarn.style.display = 'none';
+    managers.sort((a, b) => a.name.localeCompare(b.name)).forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.email;
+      opt.textContent = u.name;
+      managerSelect.appendChild(opt);
+    });
+    document.getElementById('gh-push-btn').disabled = true; // enabled once a manager is selected
+  }
 
   // Build email map: priority = Users report → localStorage → guessed
   let savedEmailMap = {};
@@ -4565,7 +4586,6 @@ function openGitHubPushModal() {
   const container = document.getElementById('gh-email-rows');
   container.innerHTML = sorted.map(r => {
     const key = normName(r.name);
-    // Priority: Users report > localStorage > guess
     const fromUsers = state.emailMap && state.emailMap[key];
     const fromSaved = savedEmailMap[key];
     const email = fromUsers || fromSaved || guessEmail(r.name);
@@ -4583,8 +4603,12 @@ function openGitHubPushModal() {
 
   modal.style.display = 'flex';
   document.getElementById('gh-push-status').textContent = '';
-  document.getElementById('gh-push-btn').disabled = false;
   document.getElementById('gh-push-btn').textContent = '🚀 Push All Worker Files';
+}
+
+function onManagerSelectChange() {
+  const val = document.getElementById('gh-manager-select').value;
+  document.getElementById('gh-push-btn').disabled = !val;
 }
 
 function guessEmail(name) {
@@ -4602,9 +4626,8 @@ function closeGitHubPushModal() {
 }
 
 async function executePushToGitHub() {
-  const token = document.getElementById('gh-token-input').value.trim();
-  if (!token) { alert('Please enter your GitHub Personal Access Token.'); return; }
-  localStorage.setItem(GITHUB_TOKEN_KEY, token);
+  const managerEmail = document.getElementById('gh-manager-select').value;
+  if (!managerEmail) { alert('Please select your manager identity before pushing.'); return; }
 
   // Collect email map and roles
   const emailMap = {};
@@ -4621,10 +4644,7 @@ async function executePushToGitHub() {
   const btn = document.getElementById('gh-push-btn');
   btn.disabled = true;
 
-  const owner = 'squeaksquad';
-  const repo  = 'studio-worker-data';
-
-  // Determine period tag from date range
+  // Determine period tag
   const fromEl = document.getElementById('filter-date-from');
   const toEl   = document.getElementById('filter-date-to');
   const fromTag = fromEl?.value ? fromEl.value.replace(/-/g,'') : '';
@@ -4633,158 +4653,110 @@ async function executePushToGitHub() {
 
   const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
   const rosterWorkers = {};
-  let done = 0, failed = 0;
+  const files = [];
 
-  // Fetch current roster to preserve whitelist
-  let existingRoster = { whitelist: [], workers: {} };
-  try {
-    const rosterRes = await githubGet(token, owner, repo, 'roster.json');
-    if (rosterRes.ok) {
-      const rosterData = await rosterRes.json();
-      const content = JSON.parse(atob(rosterData.content.replace(/\n/g,'')));
-      existingRoster = content;
-    }
-  } catch(e) {}
+  statusEl.textContent = 'Building worker snapshots…';
+  await new Promise(r => setTimeout(r, 0)); // yield to UI
 
   for (const r of sorted) {
     const key = normName(r.name);
     const email = emailMap[key];
-    if (!email) { failed++; continue; }
+    if (!email) continue;
 
     const safeName = r.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
     const filename = `${safeName}_${periodTag}.html`;
     rosterWorkers[email] = { file: filename, role: roleMap[email] || 'assistant' };
 
-    statusEl.textContent = `Uploading ${++done}/${sorted.length}: ${r.name}…`;
-
-    try {
-      // Generate worker snapshot HTML
-      const html = generateWorkerSnapshot(normName(r.name), r, periodTag);
-      const encoded = btoa(unescape(encodeURIComponent(html)));
-
-      // Check if file exists (to get its SHA for update)
-      const existingRes = await githubGet(token, owner, repo, `workers/${filename}`);
-      const sha = existingRes.ok ? (await existingRes.json()).sha : undefined;
-
-      // Upload file
-      const uploadRes = await githubPut(token, owner, repo, `workers/${filename}`, {
-        message: `Update ${r.name} attendance data (${periodTag})`,
-        content: encoded,
-        ...(sha ? { sha } : {})
-      });
-
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json();
-        console.warn(`Failed to upload ${filename}:`, err.message);
-        failed++;
-      }
-    } catch(e) {
-      console.warn(`Error uploading for ${r.name}:`, e);
-      failed++;
-    }
-    // Small delay to avoid GitHub rate limiting
-    await new Promise(res => setTimeout(res, 100));
+    const html = generateWorkerSnapshot(normName(r.name), r, periodTag);
+    files.push({
+      path: `workers/${filename}`,
+      content: btoa(unescape(encodeURIComponent(html))),
+      message: `Update ${r.name} attendance data (${periodTag}) [pushed by ${managerEmail}]`
+    });
   }
 
-  // Also add managers/consultants from Users report who aren't in attendance data
-  // (they don't work shifts so won't be in state.results, but need portal access)
+  // Add managers from Users report who aren't in attendance data
   if (state.userMap) {
     for (const [key, userData] of Object.entries(state.userMap)) {
       if (userData.role !== 'manager') continue;
       const email = userData.email;
-      if (!email || rosterWorkers[email]) continue; // skip if already added via attendance
-      // Managers get a placeholder entry — no snapshot file, just dashboard access
+      if (!email || rosterWorkers[email]) continue;
       const safeName = userData.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
       const filename = `${safeName}_${periodTag}.html`;
       rosterWorkers[email] = { file: filename, role: 'manager' };
     }
   }
 
-  // Update roster.json
-  // Auto-revoke: build roster exclusively from current Users report + attendance data.
-  // Anyone not in rosterWorkers is removed — preserving only the manual whitelist.
-  statusEl.textContent = 'Updating roster.json…';
+  // Build roster.json payload (Worker will handle SHA fetching)
+  const newRoster = {
+    _comment: 'Managed by the Attendance Analyzer. Auto-revoke: rebuilt from current Users report each push.',
+    whitelist: [], // Worker will merge with existing whitelist
+    workers: rosterWorkers
+  };
+  files.push({
+    path: 'roster.json',
+    content: btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n'))),
+    message: `Update roster for period ${periodTag} [pushed by ${managerEmail}]`,
+    mergeWhitelist: true  // hint to Worker to preserve existing whitelist
+  });
+
+  // Manager snapshot
+  statusEl.textContent = 'Building manager snapshot…';
+  await new Promise(r => setTimeout(r, 0));
+  const snapshotFilename = `manager-snapshot-${periodTag}.html`;
+  const snapshotHtml = generateFullManagerSnapshot(periodTag);
+  files.push({
+    path: `snapshots/${snapshotFilename}`,
+    content: btoa(unescape(encodeURIComponent(snapshotHtml))),
+    message: `Update manager snapshot (${periodTag}) [pushed by ${managerEmail}]`,
+    snapshotFilename  // hint to Worker to write this into roster.managerSnapshot
+  });
+
+  statusEl.textContent = `Sending ${files.length} files to Worker…`;
+
   try {
-    const newRoster = {
-      _comment: 'Managed by the Attendance Analyzer. Auto-revoke: rebuilt from current Users report each push.',
-      whitelist: existingRoster.whitelist || [], // manual whitelist entries are always preserved
-      workers: rosterWorkers  // fresh — only current staff
-    };
-    const rosterContent = btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n')));
-    const existingRosterRes = await githubGet(token, owner, repo, 'roster.json');
-    const rosterSha = existingRosterRes.ok ? (await existingRosterRes.json()).sha : undefined;
-    await githubPut(token, owner, repo, 'roster.json', {
-      message: `Update roster for period ${periodTag}`,
-      content: rosterContent,
-      ...(rosterSha ? { sha: rosterSha } : {})
+    const res = await fetch(PUSH_WORKER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Push-Secret': PUSH_SECRET
+      },
+      body: JSON.stringify({ files, periodTag, pushedBy: managerEmail })
     });
+
+    if (res.status === 401) {
+      statusEl.textContent = '❌ Auth error — push secret mismatch. Check PUSH_SECRET in worker and analyzer.';
+      btn.disabled = false;
+      return;
+    }
+    if (!res.ok && res.status !== 207) {
+      const msg = await res.text();
+      statusEl.textContent = `❌ Worker error: ${res.status} — ${msg}`;
+      btn.disabled = false;
+      return;
+    }
+
+    const data = await res.json();
+    const failed = (data.results || []).filter(r => !r.ok).length;
+    const done   = (data.results || []).filter(r => r.ok).length;
+
+    statusEl.textContent = failed > 0
+      ? `Done! ${done} files uploaded, ${failed} failed. Check console for details.`
+      : `Done! All ${done} files pushed. ✓`;
+
+    if (data.results) console.log('Push results:', data.results);
+
   } catch(e) {
-    console.warn('Failed to update roster.json:', e);
+    statusEl.textContent = `❌ Network error: ${e.message}`;
+    console.error('Push error:', e);
   }
 
-  // Push full manager snapshot
-  statusEl.textContent = 'Generating full manager snapshot…';
-  try {
-    const snapshotFilename = `manager-snapshot-${periodTag}.html`;
-    const snapshotHtml = generateFullManagerSnapshot(periodTag);
-    const snapshotEncoded = btoa(unescape(encodeURIComponent(snapshotHtml)));
-    const existingSnapshotRes = await githubGet(token, owner, repo, `snapshots/${snapshotFilename}`);
-    const snapshotSha = existingSnapshotRes.ok ? (await existingSnapshotRes.json()).sha : undefined;
-    await githubPut(token, owner, repo, `snapshots/${snapshotFilename}`, {
-      message: `Update manager snapshot (${periodTag})`,
-      content: snapshotEncoded,
-      ...(snapshotSha ? { sha: snapshotSha } : {})
-    });
-    // Store the snapshot filename in roster.json for the dashboard to find
-    // Re-fetch roster sha (may have changed) and patch in the snapshot reference
-    try {
-      const freshRosterRes = await githubGet(token, owner, repo, 'roster.json');
-      if (freshRosterRes.ok) {
-        const freshRosterData = await freshRosterRes.json();
-        const freshContent = JSON.parse(atob(freshRosterData.content.replace(/\n/g,'')));
-        freshContent.managerSnapshot = snapshotFilename;
-        const patchedContent = btoa(unescape(encodeURIComponent(JSON.stringify(freshContent, null, 2) + '\n')));
-        await githubPut(token, owner, repo, 'roster.json', {
-          message: `Add manager snapshot reference (${periodTag})`,
-          content: patchedContent,
-          sha: freshRosterData.sha
-        });
-      }
-    } catch(e) { console.warn('Failed to patch roster with snapshot ref:', e); }
-  } catch(e) {
-    console.warn('Failed to push manager snapshot:', e);
-  }
-
-  const summary = failed > 0
-    ? `Done! ${done - failed} uploaded, ${failed} skipped (missing email). Roster + snapshot updated.`
-    : `Done! All ${done} worker files + manager snapshot uploaded. ✓`;
-  statusEl.textContent = summary;
   btn.disabled = false;
   btn.textContent = '✓ Push again';
 }
 
-function githubGet(token, owner, repo, path) {
-  return fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'AttendanceAnalyzer/1.0'
-    }
-  });
-}
 
-function githubPut(token, owner, repo, path, body) {
-  return fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'AttendanceAnalyzer/1.0'
-    },
-    body: JSON.stringify(body)
-  });
-}
+
 
 function generateFullManagerSnapshot(periodTag) {
   // Reuse the same logic as exportSnapshot() but return the HTML string
@@ -5152,11 +5124,14 @@ ${pcHtml}
     </div>
 
     <div style="margin-bottom:16px">
-      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:4px">GitHub Personal Access Token</label>
-      <input id="gh-token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-        style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 12px;font-size:13px;font-family:monospace;outline:none"
-        autocomplete="off">
-      <p style="font-size:11px;color:#9ca3af;margin-top:4px">Needs <code>repo</code> scope on <strong>squeaksquad/studio-worker-data</strong>. Saved locally in your browser.</p>
+      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:4px">Pushing as (Manager)</label>
+      <select id="gh-manager-select" onchange="onManagerSelectChange()"
+        style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 12px;font-size:13px;color:#374151;background:#fff;outline:none;cursor:pointer">
+        <option value="">— Select your name —</option>
+      </select>
+      <p id="gh-manager-warn" style="display:none;font-size:11px;color:#dc2626;margin-top:6px;background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:6px 10px">
+        ⚠️ No managers found in the Users Report. Load a Users Report that includes Manager or Consultant roles to enable push.
+      </p>
     </div>
 
     <div style="margin-bottom:16px">
