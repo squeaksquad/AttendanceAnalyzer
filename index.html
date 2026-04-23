@@ -4644,7 +4644,6 @@ async function executePushToGitHub() {
   const btn = document.getElementById('gh-push-btn');
   btn.disabled = true;
 
-  // Determine period tag
   const fromEl = document.getElementById('filter-date-from');
   const toEl   = document.getElementById('filter-date-to');
   const fromTag = fromEl?.value ? fromEl.value.replace(/-/g,'') : '';
@@ -4653,106 +4652,125 @@ async function executePushToGitHub() {
 
   const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
   const rosterWorkers = {};
-  const files = [];
+  const workerFiles = [];
 
+  // ── Phase 1: build + push worker snapshots ───────────────────────────────
   statusEl.textContent = 'Building worker snapshots…';
-  await new Promise(r => setTimeout(r, 0)); // yield to UI
+  await new Promise(r => setTimeout(r, 0));
 
   for (const r of sorted) {
     const key = normName(r.name);
     const email = emailMap[key];
     if (!email) continue;
-
     const safeName = r.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
     const filename = `${safeName}_${periodTag}.html`;
     rosterWorkers[email] = { file: filename, role: roleMap[email] || 'assistant' };
-
     const html = generateWorkerSnapshot(normName(r.name), r, periodTag);
-    files.push({
+    workerFiles.push({
       path: `workers/${filename}`,
       content: btoa(unescape(encodeURIComponent(html))),
       message: `Update ${r.name} attendance data (${periodTag}) [pushed by ${managerEmail}]`
     });
   }
 
-  // Add managers from Users report who aren't in attendance data
+  // Managers from Users report not in attendance data
   if (state.userMap) {
     for (const [key, userData] of Object.entries(state.userMap)) {
       if (userData.role !== 'manager') continue;
       const email = userData.email;
       if (!email || rosterWorkers[email]) continue;
       const safeName = userData.name.replace(/[^a-zA-Z0-9]/g,'_').toLowerCase();
-      const filename = `${safeName}_${periodTag}.html`;
-      rosterWorkers[email] = { file: filename, role: 'manager' };
+      rosterWorkers[email] = { file: `${safeName}_${periodTag}.html`, role: 'manager' };
     }
   }
 
-  // Build roster.json payload (Worker will handle SHA fetching)
+  // Push worker files in batches of 20 — Cloudflare free tier allows 50 subrequests
+  // per Worker invocation; each file costs 2 (GET sha + PUT), so 20 × 2 = 40, safe.
+  const BATCH_SIZE = 20;
+  let workerFailed = 0, workerDone = 0;
+  const totalBatches = Math.ceil(workerFiles.length / BATCH_SIZE);
+  for (let i = 0; i < workerFiles.length; i += BATCH_SIZE) {
+    const batch = workerFiles.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    statusEl.textContent = `Pushing worker files… batch ${batchNum}/${totalBatches} (${i + 1}–${Math.min(i + BATCH_SIZE, workerFiles.length)} of ${workerFiles.length})`;
+    await new Promise(r => setTimeout(r, 0));
+    const batchRes = await workerFetch({ files: batch, pushedBy: managerEmail });
+    if (!batchRes) { btn.disabled = false; return; }
+    workerFailed += (batchRes.results || []).filter(r => !r.ok).length;
+    workerDone   += (batchRes.results || []).filter(r => r.ok).length;
+  }
+
+  // ── Phase 2: roster.json ─────────────────────────────────────────────────
+  statusEl.textContent = 'Updating roster.json…';
   const newRoster = {
     _comment: 'Managed by the Attendance Analyzer. Auto-revoke: rebuilt from current Users report each push.',
-    whitelist: [], // Worker will merge with existing whitelist
+    whitelist: [],
     workers: rosterWorkers
   };
-  files.push({
-    path: 'roster.json',
-    content: btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n'))),
-    message: `Update roster for period ${periodTag} [pushed by ${managerEmail}]`,
-    mergeWhitelist: true  // hint to Worker to preserve existing whitelist
+  const rosterRes = await workerFetch({
+    files: [{
+      path: 'roster.json',
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n'))),
+      message: `Update roster for period ${periodTag} [pushed by ${managerEmail}]`,
+      mergeWhitelist: true
+    }],
+    pushedBy: managerEmail
   });
+  if (!rosterRes) { btn.disabled = false; return; }
 
-  // Manager snapshot
+  // ── Phase 3: manager snapshot ────────────────────────────────────────────
   statusEl.textContent = 'Building manager snapshot…';
   await new Promise(r => setTimeout(r, 0));
   const snapshotFilename = `manager-snapshot-${periodTag}.html`;
   const snapshotHtml = generateFullManagerSnapshot(periodTag);
-  files.push({
-    path: `snapshots/${snapshotFilename}`,
-    content: btoa(unescape(encodeURIComponent(snapshotHtml))),
-    message: `Update manager snapshot (${periodTag}) [pushed by ${managerEmail}]`,
-    snapshotFilename  // hint to Worker to write this into roster.managerSnapshot
+  statusEl.textContent = 'Pushing manager snapshot…';
+  const snapRes = await workerFetch({
+    files: [{
+      path: `snapshots/${snapshotFilename}`,
+      content: btoa(unescape(encodeURIComponent(snapshotHtml))),
+      message: `Update manager snapshot (${periodTag}) [pushed by ${managerEmail}]`,
+      snapshotFilename
+    }],
+    pushedBy: managerEmail,
+    periodTag
   });
+  if (!snapRes) { btn.disabled = false; return; }
 
-  statusEl.textContent = `Sending ${files.length} files to Worker…`;
-
-  try {
-    const res = await fetch(PUSH_WORKER_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Push-Secret': PUSH_SECRET
-      },
-      body: JSON.stringify({ files, periodTag, pushedBy: managerEmail })
-    });
-
-    if (res.status === 401) {
-      statusEl.textContent = '❌ Auth error — push secret mismatch. Check PUSH_SECRET in worker and analyzer.';
-      btn.disabled = false;
-      return;
-    }
-    if (!res.ok && res.status !== 207) {
-      const msg = await res.text();
-      statusEl.textContent = `❌ Worker error: ${res.status} — ${msg}`;
-      btn.disabled = false;
-      return;
-    }
-
-    const data = await res.json();
-    const failed = (data.results || []).filter(r => !r.ok).length;
-    const done   = (data.results || []).filter(r => r.ok).length;
-
-    statusEl.textContent = failed > 0
-      ? `Done! ${done} files uploaded, ${failed} failed. Check console for details.`
-      : `Done! All ${done} files pushed. ✓`;
-
-    if (data.results) console.log('Push results:', data.results);
-
-  } catch(e) {
-    statusEl.textContent = `❌ Network error: ${e.message}`;
-    console.error('Push error:', e);
-  }
+  // ── Done ─────────────────────────────────────────────────────────────────
+  const totalFailed = workerFailed;
+  statusEl.textContent = totalFailed > 0
+    ? `Done! ${workerDone}/${workerFiles.length} worker files pushed, ${totalFailed} failed. Roster + snapshot updated. ✓`
+    : `Done! All ${workerDone} worker files + roster + snapshot pushed. ✓`;
 
   btn.disabled = false;
   btn.textContent = '✓ Push again';
+}
+
+// Shared fetch helper — handles auth errors and network failures inline
+async function workerFetch(payload) {
+  const statusEl = document.getElementById('gh-push-status');
+  try {
+    const res = await fetch(PUSH_WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Push-Secret': PUSH_SECRET },
+      body: JSON.stringify(payload)
+    });
+    if (res.status === 401) {
+      statusEl.textContent = '❌ Auth error — PUSH_SECRET mismatch between analyzer and Worker.';
+      return null;
+    }
+    if (!res.ok && res.status !== 207) {
+      statusEl.textContent = `❌ Worker error: ${res.status} — ${await res.text()}`;
+      return null;
+    }
+    const data = await res.json();
+    if (data.results) console.log('Push results:', data.results);
+    return data;
+  } catch(e) {
+    statusEl.textContent = `❌ Network error: ${e.message}`;
+    console.error('Push error:', e);
+    return null;
+  }
 }
 
 
