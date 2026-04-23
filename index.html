@@ -11,7 +11,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { min-width: 900px; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: #f0f0ee; color: #1a1a1a; min-height: 100vh; padding-top: 45px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: #f0f0ee; color: #1a1a1a; min-height: 100vh; padding-top: var(--header-h, 45px); }
 
 /* ── Header ── */
 header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; z-index: 20; }
@@ -43,10 +43,10 @@ header span { font-size: 12px; color: #888; }
 .mode-tab.active { background: #1d4ed8; color: #fff; }
 
 /* ── Layout ── */
-.workspace { display: block; margin-left: 260px; min-height: calc(100vh - 45px); min-width: 640px; }
+.workspace { display: block; margin-left: 260px; min-height: calc(100vh - var(--header-h, 45px)); min-width: 640px; }
 
 /* ── Sidebar ── */
-.sidebar { background: #fff; border-right: 1px solid #ddd; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: fixed; top: 45px; left: 0; z-index: 10; width: 260px; height: calc(100vh - 45px); overflow-y: auto; box-sizing: border-box; }
+.sidebar { background: #fff; border-right: 1px solid #ddd; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 10; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; }
 .sidebar-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #999; margin-top: 12px; margin-bottom: 2px; }
 .sidebar-label:first-child { margin-top: 0; }
 .period-header { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 3px; padding: 1px 6px; margin-bottom: 2px; display: inline-block; }
@@ -78,8 +78,8 @@ header span { font-size: 12px; color: #888; }
 
 /* ── Main ── */
 .main { padding: 0; display: flex; flex-direction: column; min-width: 640px; overflow: visible; }
-.main-header { position: fixed; top: 45px; left: 260px; right: 0; z-index: 14; background: #f0f0ee; padding: 12px 24px 0; box-sizing: border-box; }
-.filter-bar-sticky { position: fixed; top: 45px; left: 260px; right: 0; z-index: 15; background: #f0f0ee; box-sizing: border-box; padding: 8px 24px 10px; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; }
+.main-header { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 14; background: #f0f0ee; padding: 12px 24px 0; box-sizing: border-box; }
+.filter-bar-sticky { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 15; background: #f0f0ee; box-sizing: border-box; padding: 8px 24px 10px; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; }
 .main-scroll { padding: 0 24px 24px; overflow: visible; flex: 1; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; gap: 8px; color: #aaa; }
 .empty-state .big { font-size: 40px; }
@@ -264,11 +264,28 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 .btn-compact { flex-shrink: 0; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 10px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; color: #374151; }
 .btn-compact:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .btn-compact:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── Mobile sidebar ── */
+.sidebar-toggle { display: none; align-items: center; justify-content: center; background: none; border: 1px solid #d1d5db; border-radius: 4px; width: 30px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: #374151; flex-shrink: 0; }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9; }
+.sidebar-overlay.visible { display: block; }
+@media (max-width: 760px) {
+  html, body { min-width: 0 !important; }
+  .sidebar-toggle { display: inline-flex; }
+  .sidebar { transform: translateX(-100%); transition: transform .22s ease; z-index: 11; width: 260px; max-width: calc(100vw - 48px); padding-left: 10px; padding-right: 10px; overflow-x: hidden; }
+  .sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,.18); }
+  .upload-zone { margin-left: 0; }
+  .workspace { margin-left: 0; min-width: 0; }
+  .main { min-width: 0; }
+  .main-header { left: 0; }
+  .filter-bar-sticky { left: 0; }
+}
 </style>
 </head>
 <body>
 
 <header>
+  <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">☰</button>
   <h1>Attendance Analyzer</h1>
   <span>WhenIWork · Internal Management Tool</span>
   <span class="date-range-pill" id="date-range-pill"></span>
@@ -278,6 +295,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <button class="mode-tab" onclick="setMode('insights')" id="tab-ins">Insights</button>
   </div>
 </header>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
 <div class="drop-overlay" id="drop-overlay">
   <div class="drop-overlay-inner">
@@ -478,7 +496,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
   <div class="main" id="main">
     <div class="empty-state">
       <div class="big">📂</div>
-      <p>Upload your three WhenIWork exports to begin</p>
+      <p>Upload your WhenIWork exports to begin</p>
       <p class="sub">All processing stays in your browser — nothing is uploaded</p>
     </div>
   </div>
@@ -487,6 +505,25 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 <script>
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const opening = !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', opening);
+  overlay.classList.toggle('visible', opening);
+}
+
+// Keep --header-h in sync with actual header height so everything below it
+// stays correctly positioned even when the header wraps to two lines.
+(function() {
+  const hdr = document.querySelector('header');
+  function syncHeaderHeight() {
+    document.documentElement.style.setProperty('--header-h', hdr.offsetHeight + 'px');
+  }
+  syncHeaderHeight();
+  new ResizeObserver(syncHeaderHeight).observe(hdr);
+})();
 
 const state = {
   absences: null, clockin: null, shifts: null,
@@ -5083,11 +5120,19 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
   .section { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; margin: 0 32px 20px; padding: 20px 24px; }
   .section h2 { font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
                 color: #9ca3af; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f3f4f6; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; overflow-x: auto; display: block; }
   th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: #9ca3af;
        text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px solid #f3f4f6; }
   .footer { text-align: center; padding: 24px; color: #d1d5db; font-size: 11px; }
   ${risk ? '.risk-badge{display:inline-block;background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:10px;vertical-align:middle}' : ''}
+  @media (max-width: 600px) {
+    .header { padding: 16px; flex-direction: column; align-items: flex-start; gap: 12px; }
+    .pct-big { font-size: 36px; }
+    div[style*="text-align:right"] { text-align: left !important; }
+    .stats-row { padding: 16px; gap: 8px; }
+    .stat { min-width: calc(50% - 4px); flex: none; padding: 10px 12px; }
+    .section { margin: 0 12px 16px; padding: 16px; }
+  }
 </style>
 </head>
 <body>
