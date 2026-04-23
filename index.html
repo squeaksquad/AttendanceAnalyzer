@@ -4546,8 +4546,8 @@ function exportReport() {
 
 // ── GitHub Push — Worker Portal ───────────────────────────────────────────────
 // PAT is held server-side in the Cloudflare Worker. Only a push secret lives here.
-const PUSH_WORKER_URL  = 'https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev'; // ← set after deploying worker
-const PUSH_SECRET      = 'REPLACE_WITH_YOUR_PUSH_SECRET';                  // ← match PUSH_SECRET env var in Worker
+const PUSH_WORKER_URL  = 'https://github-push-worker.bryan-dimaio.workers.dev'; // ← set after deploying worker
+const PUSH_SECRET      = '6eeee075da251edd59eeaf62d63bd5b79b1f905d1782bb25fd3f92d70d3f7242';                  // ← match PUSH_SECRET env var in Worker
 const WORKER_EMAILS_KEY = 'studio_worker_emails';
 
 function openGitHubPushModal() {
