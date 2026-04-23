@@ -269,6 +269,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 .sidebar-toggle { display: none; align-items: center; justify-content: center; background: none; border: 1px solid #d1d5db; border-radius: 4px; width: 30px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: #374151; flex-shrink: 0; }
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9; }
 .sidebar-overlay.visible { display: block; }
+.mode-select { display: none; margin-left: auto; border: 1px solid #d1d5db; border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: #374151; background: #fff; cursor: pointer; flex-shrink: 0; }
+.mode-select:focus { outline: none; border-color: #1d4ed8; }
 @media (max-width: 760px) {
   html, body { min-width: 0 !important; }
   .sidebar-toggle { display: inline-flex; }
@@ -277,8 +279,15 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
   .upload-zone { margin-left: 0; }
   .workspace { margin-left: 0; min-width: 0; }
   .main { min-width: 0; }
-  .main-header { left: 0; }
-  .filter-bar-sticky { left: 0; }
+  .main-header { left: 0; padding: 8px 12px 0; }
+  .filter-bar-sticky { left: 0; padding: 6px 12px 8px; }
+  .main-scroll { padding: 0 8px 24px; }
+  td.expand-arrow { left: 0; }
+  td.name-cell { left: 28px; min-width: 0; }
+  .mode-tabs { display: none; }
+  .mode-select { display: block; }
+  header > span { display: none; }
+  .date-range-pill { display: none !important; }
 }
 </style>
 </head>
@@ -294,6 +303,11 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <button class="mode-tab" onclick="setMode('prepclosing')" id="tab-pc">Prep &amp; Closing Shifts</button>
     <button class="mode-tab" onclick="setMode('insights')" id="tab-ins">Insights</button>
   </div>
+  <select class="mode-select" onchange="setMode(this.value)" id="mode-select">
+    <option value="attendance">Attendance</option>
+    <option value="prepclosing">Prep &amp; Closing</option>
+    <option value="insights">Insights</option>
+  </select>
 </header>
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
@@ -531,7 +545,7 @@ const state = {
   mode: 'attendance',
   att: { sortCol:'name', sortAsc:true, filterText:'', showFlaggedOnly:false, openRows:new Set() },
   pc:  { sortCol:'name', sortAsc:true, filterText:'', showIssuesOnly:{prep:false,close:false}, openRows:new Set(), collapsed:{prep:false,close:false}, view:'overview', adjustForStartDate:true },
-  ins: { collapsed: {}, empGridMetric: 'missCount',
+  ins: { collapsed: { 'ins-dow': true, 'ins-emp-grid': true, 'ins-half': true, 'ins-late': true, 'ins-notice': true }, empGridMetric: 'missCount',
     halfSort:   { col: 'delta',      asc: true  },
     lateSort:   { col: 'lateCount',  asc: false },
     noticeSort: { col: 'median',     asc: true  },
@@ -1655,9 +1669,13 @@ function buildPrepCloseData(rawShifts, mergedShiftRequests, allResults, totalWee
 
 // ── Mode switching ────────────────────────────────────────────────────────────
 function setMode(mode) {
-  state.mode=mode;
-  document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('active'));
-  if (event && event.target) event.target.classList.add('active');
+  state.mode = mode;
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  const tabMap = { attendance: 'tab-att', prepclosing: 'tab-pc', insights: 'tab-ins' };
+  const tabEl = document.getElementById(tabMap[mode]);
+  if (tabEl) tabEl.classList.add('active');
+  const sel = document.getElementById('mode-select');
+  if (sel) sel.value = mode;
   renderMain();
 }
 
@@ -2387,23 +2405,6 @@ function renderInsights() {
   </div>
 
   <div class="main-scroll">
-    <div class="ins-section${state.ins.collapsed['ins-dow']?' collapsed':''}" id="ins-dow">
-      <div class="ins-section-title" onclick="toggleInsSection('ins-dow')">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span><span class="ins-chevron">▼</span></div>
-      <div class="ins-section-body"><div class="ins-card ins-heatmap-wrap">${heatSVG}</div></div>
-    </div>
-    <div class="ins-section${state.ins.collapsed['ins-emp-grid']?' collapsed':''}" id="ins-emp-grid">
-      <div class="ins-section-title" onclick="toggleInsSection('ins-emp-grid')">Per-Employee Day-of-Week Grid <span class="ins-sub">color = intensity relative to team on that day</span><span class="ins-chevron">▼</span></div>
-      <div class="ins-section-body">
-        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-          ${['missRate','missCount','absCount'].map((m,i) => {
-            const labels = ['Miss rate %','Miss count','Absence count'];
-            const active = empGridMetric === m;
-            return `<button onclick="setEmpGridMetric('${m}')" style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:4px;border:1px solid ${active?'#1d4ed8':'#d1d5db'};background:${active?'#1d4ed8':'#fff'};color:${active?'#fff':'#374151'};cursor:pointer">${labels[i]}</button>`;
-          }).join('')}
-        </div>
-        <div class="ins-card" style="padding:10px 12px">${gridHTML}</div>
-      </div>
-    </div>
     <div class="ins-section${state.ins.collapsed['ins-wow']?' collapsed':''}" id="ins-wow">
       <div class="ins-section-title" onclick="toggleInsSection('ins-wow')">Week-over-Week Attendance Trend <span class="ins-sub">team attendance % by ISO week · hover dots for detail</span><span class="ins-chevron">▼</span></div>
       <div class="ins-section-body"><div class="ins-card">${wowSVG}</div></div>
@@ -2440,6 +2441,23 @@ function renderInsights() {
           </table>
         </div>
         </div>
+      </div>
+    </div>
+    <div class="ins-section${state.ins.collapsed['ins-dow']?' collapsed':''}" id="ins-dow">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-dow')">Day-of-Week Attendance Heat Map <span class="ins-sub">missed clock-ins + absences by day</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body"><div class="ins-card ins-heatmap-wrap">${heatSVG}</div></div>
+    </div>
+    <div class="ins-section${state.ins.collapsed['ins-emp-grid']?' collapsed':''}" id="ins-emp-grid">
+      <div class="ins-section-title" onclick="toggleInsSection('ins-emp-grid')">Per-Employee Day-of-Week Grid <span class="ins-sub">color = intensity relative to team on that day</span><span class="ins-chevron">▼</span></div>
+      <div class="ins-section-body">
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+          ${['missRate','missCount','absCount'].map((m,i) => {
+            const labels = ['Miss rate %','Miss count','Absence count'];
+            const active = empGridMetric === m;
+            return `<button onclick="setEmpGridMetric('${m}')" style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:4px;border:1px solid ${active?'#1d4ed8':'#d1d5db'};background:${active?'#1d4ed8':'#fff'};color:${active?'#fff':'#374151'};cursor:pointer">${labels[i]}</button>`;
+          }).join('')}
+        </div>
+        <div class="ins-card" style="padding:10px 12px">${gridHTML}</div>
       </div>
     </div>
     <div class="ins-section${state.ins.collapsed['ins-late']?' collapsed':''}" id="ins-late">
@@ -2666,7 +2684,7 @@ function renderAttRows() {
           + `<td class="num" style="color:#7c3aed">+${r.avgLateMinutes}m</td>`;
     return `<tr class="summary-row${flagged?' flagged':''}${isOpen?' open':''}" onclick="toggleAttDetail('${key}')">
       <td class="expand-arrow">${isOpen?'▼':'▶'}</td>
-      <td class="name-cell">${esc(r.name)}${flagged?'<span class="flag-badge">At Risk</span>':''}</td>
+      <td class="name-cell">${esc(r.name)}</td>
       ${num(r.total_assigned,'sep-left')}${num(r.worked)}
       <td class="num${r.no_timeclock>0?' c-warn':' zero'}">${r.no_timeclock>0?r.no_timeclock:'—'}</td>
       <td class="pct ${pctCls}">${pct!==null?pct+'%':'—'}</td>
@@ -3116,7 +3134,7 @@ function buildPcUnifiedRow(e) {
   const summaryRow = [
     '<tr class="summary-row' + (isOpen ? ' open' : '') + '" onclick="togglePcUnified(\'' + safeKey + '\')">',
     '<td class="expand-arrow">' + (isOpen ? '&#9660;' : '&#9658;') + '</td>',
-    '<td class="name-cell" style="position:sticky;left:288px;z-index:2">' + esc(e.name) + '</td>',
+    '<td class="name-cell" style="position:sticky;left:' + (window.innerWidth <= 760 ? '28px' : '288px') + ';z-index:2">' + esc(e.name) + '</td>',
     creditCell(p, e.hasPrep),
     creditCell(c, e.hasClose),
     '</tr>'
@@ -4269,7 +4287,7 @@ function updateStickyOffsets() {
   const filterBar  = document.querySelector('.filter-bar-sticky');
   if (!mainHeader || !filterBar) return;
 
-  const headerH    = 45;
+  const headerH    = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || document.querySelector('header').offsetHeight;
   const statsH     = mainHeader.offsetHeight;
   const filterH    = filterBar.offsetHeight;
   const totalFixed = headerH + statsH + filterH;
@@ -4277,23 +4295,30 @@ function updateStickyOffsets() {
   // Position filter bar just below stats bar
   filterBar.style.top = (headerH + statsH) + 'px';
 
-  // Measure thead rows — offsetHeight is synchronous and doesn't depend
-  // on sticky positioning, so no rAF needed
+  // On mobile the sidebar is hidden so sticky left offsets should be 0/28px,
+  // on desktop they should be 260/288px to clear the sidebar.
+  const isMobile = window.innerWidth <= 760;
+  const stickyLeft0  = isMobile ? '0px'   : '260px';
+  const stickyLeft28 = isMobile ? '28px'  : '288px';
+
+  // Fix inline-styled sticky th cells in thead (left:260px / left:288px)
+  document.querySelectorAll('thead th[style*="left:260px"], thead th[style*="left: 260px"]')
+    .forEach(th => { th.style.left = stickyLeft0; });
+  document.querySelectorAll('thead th[style*="left:288px"], thead th[style*="left: 288px"]')
+    .forEach(th => { th.style.left = stickyLeft28; });
+  // Fix inline-styled sticky td cells in tbody (P&C name-cell)
+  document.querySelectorAll('tbody td[style*="left:288px"], tbody td[style*="left: 288px"]')
+    .forEach(td => { td.style.left = stickyLeft28; });
+
   // Set group-row and col-row sticky tops
   const groupRow = document.querySelector('thead tr.group-row');
   const colRow   = document.querySelector('thead tr.col-row');
   const groupH   = groupRow ? groupRow.offsetHeight : 0;
-  const colH     = colRow   ? colRow.offsetHeight   : 0;
-  const theadH   = groupH + colH;
   document.querySelectorAll('thead tr.group-row th')
     .forEach(th => th.style.top = totalFixed + 'px');
   document.querySelectorAll('thead tr.col-row th')
     .forEach(th => th.style.top = (totalFixed + groupH) + 'px');
 
-  // padding-top on #main pushes tbody below all fixed elements.
-  // body already has padding-top:45px for the top header,
-  // so #main only needs to account for stats + filter + thead.
-  // Set padding-top on #main itself — survives innerHTML replacement
   const mainEl = document.getElementById('main');
   if (mainEl) mainEl.style.paddingTop = (statsH + filterH) + 'px';
   document.documentElement.style.scrollPaddingTop = totalFixed + 'px';
@@ -5138,7 +5163,7 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
 <body>
 <div class="header">
   <div class="header-left">
-    <h1>${esc(result.name)}${risk?'<span class="risk-badge">AT RISK</span>':''}</h1>
+    <h1>${esc(result.name)}</h1>
     <p>Attendance Report &nbsp;·&nbsp; ${esc(dateRange)}</p>
   </div>
   <div style="text-align:right">
