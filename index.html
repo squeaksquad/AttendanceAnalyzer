@@ -4546,37 +4546,14 @@ function exportReport() {
 
 // ── GitHub Push — Worker Portal ───────────────────────────────────────────────
 // PAT is held server-side in the Cloudflare Worker. Only a push secret lives here.
-const PUSH_WORKER_URL  = 'https://github-push-worker.bryan-dimaio.workers.dev'; // ← set after deploying worker
-const PUSH_SECRET      = '6eeee075da251edd59eeaf62d63bd5b79b1f905d1782bb25fd3f92d70d3f7242';                  // ← match PUSH_SECRET env var in Worker
+const PUSH_WORKER_URL  = 'https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev'; // ← set after deploying worker
+const PUSH_SECRET      = 'REPLACE_WITH_YOUR_PUSH_SECRET';                  // ← match PUSH_SECRET env var in Worker
 const WORKER_EMAILS_KEY = 'studio_worker_emails';
 
 function openGitHubPushModal() {
   if (!state.results || !state.results.length) return;
   const modal = document.getElementById('github-push-modal');
   if (!modal) return;
-
-  // Build manager list from Users report
-  const managerSelect = document.getElementById('gh-manager-select');
-  const managerWarn   = document.getElementById('gh-manager-warn');
-  managerSelect.innerHTML = '<option value="">— Select your name —</option>';
-
-  const managers = state.userMap
-    ? Object.values(state.userMap).filter(u => u.role === 'manager')
-    : [];
-
-  if (managers.length === 0) {
-    managerWarn.style.display = 'block';
-    document.getElementById('gh-push-btn').disabled = true;
-  } else {
-    managerWarn.style.display = 'none';
-    managers.sort((a, b) => a.name.localeCompare(b.name)).forEach(u => {
-      const opt = document.createElement('option');
-      opt.value = u.email;
-      opt.textContent = u.name;
-      managerSelect.appendChild(opt);
-    });
-    document.getElementById('gh-push-btn').disabled = true; // enabled once a manager is selected
-  }
 
   // Build email map: priority = Users report → localStorage → guessed
   let savedEmailMap = {};
@@ -4602,13 +4579,21 @@ function openGitHubPushModal() {
   }).join('');
 
   modal.style.display = 'flex';
+  setPushProgress(0, 0);
   document.getElementById('gh-push-status').textContent = '';
+  document.getElementById('gh-push-btn').disabled = false;
   document.getElementById('gh-push-btn').textContent = '🚀 Push All Worker Files';
 }
 
-function onManagerSelectChange() {
-  const val = document.getElementById('gh-manager-select').value;
-  document.getElementById('gh-push-btn').disabled = !val;
+function setPushProgress(done, total) {
+  const bar  = document.getElementById('gh-progress-bar');
+  const wrap = document.getElementById('gh-progress-wrap');
+  if (!bar || !wrap) return;
+  if (total === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  const pct = Math.round((done / total) * 100);
+  bar.style.width = pct + '%';
+  bar.textContent = pct > 8 ? pct + '%' : '';
 }
 
 function guessEmail(name) {
@@ -4626,9 +4611,6 @@ function closeGitHubPushModal() {
 }
 
 async function executePushToGitHub() {
-  const managerEmail = document.getElementById('gh-manager-select').value;
-  if (!managerEmail) { alert('Please select your manager identity before pushing.'); return; }
-
   // Collect email map and roles
   const emailMap = {};
   const roleMap  = {};
@@ -4669,7 +4651,7 @@ async function executePushToGitHub() {
     workerFiles.push({
       path: `workers/${filename}`,
       content: btoa(unescape(encodeURIComponent(html))),
-      message: `Update ${r.name} attendance data (${periodTag}) [pushed by ${managerEmail}]`
+      message: `Update ${r.name} attendance data (${periodTag})`
     });
   }
 
@@ -4684,24 +4666,36 @@ async function executePushToGitHub() {
     }
   }
 
-  // Push worker files in batches of 20 — Cloudflare free tier allows 50 subrequests
-  // per Worker invocation; each file costs 2 (GET sha + PUT), so 20 × 2 = 40, safe.
+  // Total steps: worker file batches + roster + snapshot
   const BATCH_SIZE = 20;
-  let workerFailed = 0, workerDone = 0;
   const totalBatches = Math.ceil(workerFiles.length / BATCH_SIZE);
+  const totalSteps = totalBatches + 2; // +roster +snapshot
+  let completedSteps = 0;
+
+  const advanceProgress = (label) => {
+    completedSteps++;
+    setPushProgress(completedSteps, totalSteps);
+    statusEl.textContent = label;
+  };
+
+  // ── Phase 1: worker file batches ─────────────────────────────────────────
+  setPushProgress(0, totalSteps);
+  let workerFailed = 0, workerDone = 0;
   for (let i = 0; i < workerFiles.length; i += BATCH_SIZE) {
     const batch = workerFiles.slice(i, i + BATCH_SIZE);
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-    statusEl.textContent = `Pushing worker files… batch ${batchNum}/${totalBatches} (${i + 1}–${Math.min(i + BATCH_SIZE, workerFiles.length)} of ${workerFiles.length})`;
+    const end = Math.min(i + BATCH_SIZE, workerFiles.length);
+    statusEl.textContent = `Uploading worker files ${i + 1}–${end} of ${workerFiles.length}…`;
     await new Promise(r => setTimeout(r, 0));
-    const batchRes = await workerFetch({ files: batch, pushedBy: managerEmail });
+    const batchRes = await workerFetch({ files: batch });
     if (!batchRes) { btn.disabled = false; return; }
     workerFailed += (batchRes.results || []).filter(r => !r.ok).length;
     workerDone   += (batchRes.results || []).filter(r => r.ok).length;
+    advanceProgress(`Uploaded files ${i + 1}–${end} of ${workerFiles.length}`);
   }
 
   // ── Phase 2: roster.json ─────────────────────────────────────────────────
   statusEl.textContent = 'Updating roster.json…';
+  await new Promise(r => setTimeout(r, 0));
   const newRoster = {
     _comment: 'Managed by the Attendance Analyzer. Auto-revoke: rebuilt from current Users report each push.',
     whitelist: [],
@@ -4711,12 +4705,12 @@ async function executePushToGitHub() {
     files: [{
       path: 'roster.json',
       content: btoa(unescape(encodeURIComponent(JSON.stringify(newRoster, null, 2) + '\n'))),
-      message: `Update roster for period ${periodTag} [pushed by ${managerEmail}]`,
+      message: `Update roster for period ${periodTag}`,
       mergeWhitelist: true
-    }],
-    pushedBy: managerEmail
+    }]
   });
   if (!rosterRes) { btn.disabled = false; return; }
+  advanceProgress('Roster updated');
 
   // ── Phase 3: manager snapshot ────────────────────────────────────────────
   statusEl.textContent = 'Building manager snapshot…';
@@ -4724,22 +4718,23 @@ async function executePushToGitHub() {
   const snapshotFilename = `manager-snapshot-${periodTag}.html`;
   const snapshotHtml = generateFullManagerSnapshot(periodTag);
   statusEl.textContent = 'Pushing manager snapshot…';
+  await new Promise(r => setTimeout(r, 0));
   const snapRes = await workerFetch({
     files: [{
       path: `snapshots/${snapshotFilename}`,
       content: btoa(unescape(encodeURIComponent(snapshotHtml))),
-      message: `Update manager snapshot (${periodTag}) [pushed by ${managerEmail}]`,
+      message: `Update manager snapshot (${periodTag})`,
       snapshotFilename
     }],
-    pushedBy: managerEmail,
     periodTag
   });
   if (!snapRes) { btn.disabled = false; return; }
+  advanceProgress('Manager snapshot pushed');
 
   // ── Done ─────────────────────────────────────────────────────────────────
-  const totalFailed = workerFailed;
-  statusEl.textContent = totalFailed > 0
-    ? `Done! ${workerDone}/${workerFiles.length} worker files pushed, ${totalFailed} failed. Roster + snapshot updated. ✓`
+  setPushProgress(totalSteps, totalSteps);
+  statusEl.textContent = workerFailed > 0
+    ? `Done! ${workerDone}/${workerFiles.length} worker files pushed, ${workerFailed} failed. Check console.`
     : `Done! All ${workerDone} worker files + roster + snapshot pushed. ✓`;
 
   btn.disabled = false;
@@ -5142,19 +5137,14 @@ ${pcHtml}
     </div>
 
     <div style="margin-bottom:16px">
-      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:4px">Pushing as (Manager)</label>
-      <select id="gh-manager-select" onchange="onManagerSelectChange()"
-        style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:8px 12px;font-size:13px;color:#374151;background:#fff;outline:none;cursor:pointer">
-        <option value="">— Select your name —</option>
-      </select>
-      <p id="gh-manager-warn" style="display:none;font-size:11px;color:#dc2626;margin-top:6px;background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:6px 10px">
-        ⚠️ No managers found in the Users Report. Load a Users Report that includes Manager or Consultant roles to enable push.
-      </p>
+      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:8px">Worker Emails — confirm or correct before pushing</label>
+      <div id="gh-email-rows" style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px"></div>
     </div>
 
-    <div style="margin-bottom:16px">
-      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:8px">Worker Emails — confirm or correct before pushing</label>
-      <div id="gh-email-rows" style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px"></div>
+    <div id="gh-progress-wrap" style="display:none;margin-bottom:10px">
+      <div style="background:#e5e7eb;border-radius:999px;height:10px;overflow:hidden">
+        <div id="gh-progress-bar" style="height:100%;width:0%;background:#166534;border-radius:999px;transition:width .3s ease;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700"></div>
+      </div>
     </div>
 
     <div id="gh-push-status" style="font-size:12px;color:#6b7280;min-height:18px;margin-bottom:12px"></div>
