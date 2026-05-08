@@ -4466,10 +4466,10 @@ function renderSnapList() {
         const parts = [];
         // Format date range compactly: "Jan 20 – May 4"
         const fmtShort = iso => { if (!iso) return ''; const d = new Date(iso + 'T12:00:00'); return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }); };
-        if (m.dateFrom && m.dateTo) parts.push(fmtShort(m.dateFrom) + ' – ' + fmtShort(m.dateTo));
+        if (m.dateFrom && m.dateTo) parts.push(fmtShort(m.dateFrom) + ' - ' + fmtShort(m.dateTo));
         else if (m.dateFrom || m.dateTo) parts.push(fmtShort(m.dateFrom || m.dateTo));
         // Legacy support: if dateRange was stored as a string (old format)
-        else if (m.dateRange) parts.push(m.dateRange.replace(/→/g, '–'));
+        else if (m.dateRange) parts.push(m.dateRange.replace(/→/g, '-'));
         if (m.employees) parts.push(m.employees + ' emp');
         if (m.savedAt) parts.push(new Date(m.savedAt).toLocaleDateString('en-US', { month:'short', day:'numeric' }));
         meta = parts.length ? `<div class="snap-item-meta">${parts.join(' · ')}</div>` : '';
