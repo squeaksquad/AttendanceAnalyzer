@@ -4460,11 +4460,20 @@ function renderSnapList() {
     '<div class="snap-list-title">Saved Snapshots</div>' +
     _snapshots.map(s => {
       const name = s.name.replace(/\.json$/, '');
-      // Metadata was stored at save time inside the JSON, but KV list only gives us the key name.
-      // We show the name; metadata loads on demand if we fetch the full object.
-      const meta = s.meta
-        ? `<div class="snap-item-meta">${s.meta.dateRange || ''}${s.meta.employees ? ' · ' + s.meta.employees + ' emp' : ''}${s.meta.savedAt ? ' · ' + new Date(s.meta.savedAt).toLocaleDateString() : ''}</div>`
-        : '';
+      let meta = '';
+      if (s.meta) {
+        const m = s.meta;
+        const parts = [];
+        // Format date range compactly: "Jan 20 – May 4"
+        const fmtShort = iso => { if (!iso) return ''; const d = new Date(iso + 'T12:00:00'); return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }); };
+        if (m.dateFrom && m.dateTo) parts.push(fmtShort(m.dateFrom) + ' – ' + fmtShort(m.dateTo));
+        else if (m.dateFrom || m.dateTo) parts.push(fmtShort(m.dateFrom || m.dateTo));
+        // Legacy support: if dateRange was stored as a string (old format)
+        else if (m.dateRange) parts.push(m.dateRange.replace(/→/g, '–'));
+        if (m.employees) parts.push(m.employees + ' emp');
+        if (m.savedAt) parts.push(new Date(m.savedAt).toLocaleDateString('en-US', { month:'short', day:'numeric' }));
+        meta = parts.length ? `<div class="snap-item-meta">${parts.join(' · ')}</div>` : '';
+      }
       return `<div class="snap-item">
         <div class="snap-item-info"><div class="snap-item-name" title="${name}">${name}</div>${meta}</div>
         <div class="snap-item-btns">
@@ -4506,11 +4515,9 @@ async function saveAnalyzerSnapshot() {
     const payload = buildSnapshotData();
     // Attach metadata for display in the snapshot list
     const empCount = state.results ? state.results.length : 0;
-    const dateRange = (payload.dateFrom && payload.dateTo)
-      ? payload.dateFrom + ' → ' + payload.dateTo
-      : payload.dateFrom || payload.dateTo || 'All dates';
     payload._meta = {
-      dateRange,
+      dateFrom: payload.dateFrom || '',
+      dateTo: payload.dateTo || '',
       employees: empCount,
       savedAt: new Date().toISOString(),
       note: name
