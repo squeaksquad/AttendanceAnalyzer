@@ -265,6 +265,33 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 .btn-compact:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .btn-compact:disabled { opacity: .4; cursor: not-allowed; }
 
+/* ── Snapshot browser panel ── */
+.snap-toggle { width: 100%; margin-top: 6px; }
+.snap-toggle.active { background: #f0fdf4; border-color: #86efac; color: #166534; }
+.snap-panel { background: #fafaf9; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-top: 6px; }
+.snap-save-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.snap-save-row input[type="text"] { flex: 1; min-width: 0; border: 1px solid #d1d5db; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; background: #fff; color: #374151; outline: none; }
+.snap-save-row input[type="text"]:focus { border-color: #86efac; }
+.snap-save-row input[type="text"]::placeholder { color: #9ca3af; }
+.snap-save-btn { flex-shrink: 0; background: #166534; color: #fff; border: none; border-radius: 4px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.snap-save-btn:hover { background: #15803d; }
+.snap-save-btn:disabled { opacity: .4; cursor: not-allowed; }
+.snap-msg { font-size: 11px; margin-bottom: 6px; font-weight: 600; padding: 4px 8px; border-radius: 4px; }
+.snap-msg.ok { color: #166534; background: #f0fdf4; }
+.snap-msg.err { color: #dc2626; background: #fef2f2; }
+.snap-list-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 6px; margin-top: 8px; border-top: 1px solid #e5e7eb; padding-top: 8px; }
+.snap-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f3f4f6; }
+.snap-item:last-child { border-bottom: none; }
+.snap-item-info { flex: 1; min-width: 0; }
+.snap-item-name { font-size: 12px; font-weight: 600; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snap-item-meta { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+.snap-item-btns { display: flex; gap: 4px; flex-shrink: 0; }
+.snap-item-btn { background: #fff; border: 1px solid #d1d5db; border-radius: 3px; padding: 3px 8px; font-size: 10px; font-weight: 600; cursor: pointer; color: #374151; font-family: inherit; }
+.snap-item-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.snap-item-btn.delete { color: #dc2626; border-color: #fca5a5; }
+.snap-item-btn.delete:hover { background: #fef2f2; border-color: #dc2626; }
+.snap-empty { font-size: 11px; color: #9ca3af; padding: 6px 0; font-style: italic; }
+
 /* ── Mobile sidebar ── */
 .sidebar-toggle { display: none; align-items: center; justify-content: center; background: none; border: 1px solid #d1d5db; border-radius: 4px; width: 30px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: #374151; flex-shrink: 0; }
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9; }
@@ -412,6 +439,17 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <div class="btn-row">
       <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot</button>
       <button class="btn-compact" id="export-btn" onclick="exportReport()" disabled title="Export to Excel">Excel</button>
+    </div>
+
+    <!-- Snapshot browser -->
+    <button class="export-btn snap-toggle" id="snap-toggle-btn" onclick="toggleSnapPanel()" style="margin-top:4px">&#128451; Snapshots</button>
+    <div class="snap-panel" id="snap-panel" style="display:none">
+      <div class="snap-save-row">
+        <input type="text" id="snap-name-input" placeholder="e.g. Spring 2026 Final" maxlength="80">
+        <button class="snap-save-btn" id="snap-save-btn" onclick="saveAnalyzerSnapshot()">Save</button>
+      </div>
+      <div id="snap-msg"></div>
+      <div id="snap-list-container"></div>
     </div>
 
     <!-- PDF row: single worker (with dropdown) + all workers -->
@@ -4329,6 +4367,377 @@ window.addEventListener('resize', updateStickyOffsets);
 // Render pre-populated penalty-free days on page load
 document.addEventListener('DOMContentLoaded', () => renderPenaltyFreeSidebar());
 
+// ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
+const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
+let _snapshots = [];
+let _snapLoading = false;
+
+function analyzerWorkerReady() {
+  return ANALYZER_WORKER_URL && !ANALYZER_WORKER_URL.includes('YOUR-SUBDOMAIN');
+}
+
+async function analyzerApiCall(method, path, body) {
+  const res = await fetch(`${ANALYZER_WORKER_URL}/analyzer${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`${res.status}: ${t}`);
+  }
+  return res.json();
+}
+
+/** Build the canonical snapshot data object from current app state. */
+function buildSnapshotData() {
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const fromStr = (fromEl && fromEl.value) ? fromEl.value : '';
+  const toStr   = (toEl   && toEl.value)   ? toEl.value   : '';
+
+  return {
+    absences:  state.absences  || [],
+    clockin:   state.clockin   || [],
+    shifts:    state.shifts    || [],
+    absences2: state.absences2 || [],
+    timesheets: state.timesheets || [],
+    timesheets2: state.timesheets2 || [],
+    clockin2:  state.clockin2  || [],
+    shifts2:   state.shifts2   || [],
+    users:     state.users     || [],
+    dateFrom:  fromStr,
+    dateTo:    toStr,
+    manualClosures:  [...state.manualClosures],
+    overrides:       [...state.overrides],
+    penaltyFreeDays: [...state.penaltyFreeDays],
+    activeMode: state.mode || 'attendance',
+    clockOverrides: (() => {
+      const out = [];
+      for (const [nk, detail] of Object.entries(state.detailMap || {})) {
+        for (const s of detail.clockin) {
+          if (s.hasClock) out.push(`${nk}|${s.date}|${s.time}`);
+        }
+      }
+      return out;
+    })()
+  };
+}
+
+function snapMsg(text, isError) {
+  const el = document.getElementById('snap-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'snap-msg ' + (isError ? 'err' : 'ok');
+  el.style.display = text ? 'block' : 'none';
+  if (text && !isError) setTimeout(() => { if (el.textContent === text) el.style.display = 'none'; }, 4000);
+}
+
+function toggleSnapPanel() {
+  const panel = document.getElementById('snap-panel');
+  const btn   = document.getElementById('snap-toggle-btn');
+  const show  = panel.style.display === 'none';
+  panel.style.display = show ? 'block' : 'none';
+  btn.classList.toggle('active', show);
+  if (show && analyzerWorkerReady()) listAnalyzerSnapshots();
+}
+
+function renderSnapList() {
+  const container = document.getElementById('snap-list-container');
+  if (!container) return;
+  if (_snapLoading) {
+    container.innerHTML = '<div class="snap-empty">Loading…</div>';
+    return;
+  }
+  if (_snapshots.length === 0) {
+    container.innerHTML = analyzerWorkerReady()
+      ? '<div class="snap-empty">No snapshots saved yet</div>'
+      : '<div class="snap-empty">Worker URL not configured</div>';
+    return;
+  }
+  container.innerHTML =
+    '<div class="snap-list-title">Saved Snapshots</div>' +
+    _snapshots.map(s => {
+      const name = s.name.replace(/\.json$/, '');
+      // Metadata was stored at save time inside the JSON, but KV list only gives us the key name.
+      // We show the name; metadata loads on demand if we fetch the full object.
+      const meta = s.meta
+        ? `<div class="snap-item-meta">${s.meta.dateRange || ''}${s.meta.employees ? ' · ' + s.meta.employees + ' emp' : ''}${s.meta.savedAt ? ' · ' + new Date(s.meta.savedAt).toLocaleDateString() : ''}</div>`
+        : '';
+      return `<div class="snap-item">
+        <div class="snap-item-info"><div class="snap-item-name" title="${name}">${name}</div>${meta}</div>
+        <div class="snap-item-btns">
+          <button class="snap-item-btn" onclick="loadAnalyzerSnapshot('${name.replace(/'/g, "\\'")}')">Load</button>
+          <button class="snap-item-btn delete" onclick="deleteAnalyzerSnapshot('${name.replace(/'/g, "\\'")}')">×</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+async function listAnalyzerSnapshots() {
+  if (!analyzerWorkerReady()) { snapMsg('Worker URL not configured', true); return; }
+  _snapLoading = true;
+  snapMsg('');
+  renderSnapList();
+  try {
+    const data = await analyzerApiCall('GET', '/snapshots');
+    _snapshots = data.files || [];
+  } catch (e) {
+    snapMsg('Error: ' + e.message, true);
+    _snapshots = [];
+  }
+  _snapLoading = false;
+  renderSnapList();
+}
+
+async function saveAnalyzerSnapshot() {
+  if (!analyzerWorkerReady()) { snapMsg('Worker URL not configured', true); return; }
+  const nameInput = document.getElementById('snap-name-input');
+  const name = (nameInput.value || '').trim();
+  if (!name) { snapMsg('Enter a snapshot name', true); return; }
+  if (!state.results) { snapMsg('No analysis data — run Analyze first', true); return; }
+
+  const btn = document.getElementById('snap-save-btn');
+  btn.disabled = true;
+  _snapLoading = true;
+  snapMsg('');
+  try {
+    const payload = buildSnapshotData();
+    // Attach metadata for display in the snapshot list
+    const empCount = state.results ? state.results.length : 0;
+    const dateRange = (payload.dateFrom && payload.dateTo)
+      ? payload.dateFrom + ' → ' + payload.dateTo
+      : payload.dateFrom || payload.dateTo || 'All dates';
+    payload._meta = {
+      dateRange,
+      employees: empCount,
+      savedAt: new Date().toISOString(),
+      note: name
+    };
+    await analyzerApiCall('PUT', `/snapshot/${encodeURIComponent(name)}`, payload);
+    snapMsg(`Saved "${name}"`);
+    nameInput.value = '';
+    await listAnalyzerSnapshots();
+  } catch (e) {
+    snapMsg('Error: ' + e.message, true);
+  }
+  btn.disabled = false;
+  _snapLoading = false;
+}
+
+async function loadAnalyzerSnapshot(name) {
+  if (!analyzerWorkerReady()) return;
+  _snapLoading = true;
+  snapMsg('');
+  renderSnapList();
+  try {
+    const d = await analyzerApiCall('GET', `/snapshot/${encodeURIComponent(name)}`);
+    restoreSnapshotData(d);
+    snapMsg(`Loaded "${name}"`);
+  } catch (e) {
+    snapMsg('Error: ' + e.message, true);
+  }
+  _snapLoading = false;
+  renderSnapList();
+}
+
+async function deleteAnalyzerSnapshot(name) {
+  if (!analyzerWorkerReady()) return;
+  if (!confirm(`Delete snapshot "${name}"?`)) return;
+  _snapLoading = true;
+  snapMsg('');
+  try {
+    await analyzerApiCall('DELETE', `/snapshot/${encodeURIComponent(name)}`);
+    snapMsg(`Deleted "${name}"`);
+    await listAnalyzerSnapshots();
+  } catch (e) {
+    snapMsg('Error: ' + e.message, true);
+  }
+  _snapLoading = false;
+}
+
+/**
+ * Restore snapshot data into app state and re-run analysis.
+ * Streamlined version of the HTML-export bootstrap — no polling needed since
+ * we're already inside the live app with all globals available.
+ */
+function restoreSnapshotData(d) {
+  // ── 1. Inject raw spreadsheet data ──
+  state.absences    = d.absences    || [];
+  state.clockin     = d.clockin     || [];
+  state.shifts      = d.shifts      || [];
+  state.absences2   = d.absences2   || [];
+  state.timesheets  = d.timesheets  || [];
+  state.timesheets2 = d.timesheets2 || [];
+  state.clockin2    = d.clockin2    || [];
+  state.shifts2     = d.shifts2     || [];
+
+  // Restore users report if present
+  if (d.users && d.users.length) {
+    state.users = d.users;
+    // Rebuild userMap and emailMap from raw user rows
+    const userMap = {}, emailMap = {};
+    for (const row of d.users) {
+      const first = (row['First Name'] || '').trim();
+      const last  = (row['Last Name']  || '').trim();
+      const fullName = first + ' ' + last;
+      const key = normName(fullName);
+      const email = (row['Email'] || '').trim();
+      const role  = (row['Role']  || '').trim().toLowerCase();
+      if (key) {
+        userMap[key] = { email, role, name: fullName };
+        if (email) emailMap[key] = email;
+      }
+    }
+    state.userMap  = userMap;
+    state.emailMap = emailMap;
+    // Update user zone UI
+    const uEl = document.getElementById('zone-users');
+    const uSt = document.getElementById('status-users');
+    if (uEl && uSt) {
+      uEl.classList.add('loaded');
+      uSt.className   = 'zone-status ok';
+      uSt.textContent = '✓ ' + Object.keys(userMap).length + ' employees loaded';
+    }
+  }
+
+  // ── 2. Restore closures & penalty-free days ──
+  if (d.manualClosures && d.manualClosures.length) {
+    state.manualClosures = new Set(d.manualClosures);
+  }
+  if (d.penaltyFreeDays && d.penaltyFreeDays.length) {
+    state.penaltyFreeDays = new Set(d.penaltyFreeDays);
+    if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
+  }
+
+  const pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+  const clockOverrideSet = new Set(d.clockOverrides || []);
+
+  // ── 3. Set date filter inputs ──
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  if (fromEl && d.dateFrom) fromEl.value = d.dateFrom;
+  if (toEl   && d.dateTo)   toEl.value   = d.dateTo;
+
+  // ── 4. Mark upload zones as loaded ──
+  const zoneMap = { absences:'absences', clockin:'clockin', shifts:'shifts',
+                    absences2:'absences2', clockin2:'clockin2', shifts2:'shifts2' };
+  for (const [key] of Object.entries(zoneMap)) {
+    const arr    = state[key];
+    const suffix = key.endsWith('2') ? '2' : '';
+    const base   = key.replace('2','');
+    const zEl    = document.getElementById('zone-' + base + suffix);
+    const sEl    = document.getElementById('status-' + base + suffix);
+    if (zEl && sEl && arr && arr.length) {
+      zEl.classList.add('loaded');
+      sEl.className   = 'zone-status ok';
+      sEl.textContent = '✓ ' + arr.length + ' rows loaded';
+    }
+  }
+  // Also mark timesheets zones
+  for (const tsKey of ['timesheets', 'timesheets2']) {
+    const arr = state[tsKey];
+    const suffix = tsKey.endsWith('2') ? '2' : '';
+    const zEl = document.getElementById('zone-timesheets' + suffix);
+    const sEl = document.getElementById('status-timesheets' + suffix);
+    if (zEl && sEl && arr && arr.length) {
+      zEl.classList.add('loaded');
+      sEl.className   = 'zone-status ok';
+      sEl.textContent = '✓ ' + arr.length + ' rows loaded';
+    }
+  }
+
+  // ── 5. Enable buttons ──
+  document.getElementById('run-btn').disabled          = false;
+  document.getElementById('export-btn').disabled       = false;
+  document.getElementById('snapshot-btn').disabled     = false;
+  document.getElementById('correct-btn').disabled      = false;
+  document.getElementById('worker-pdf-btn').disabled   = false;
+  document.getElementById('bulk-pdf-btn').disabled     = false;
+  document.getElementById('github-push-btn').disabled  = false;
+  if (typeof populateWorkerDropdown === 'function') populateWorkerDropdown();
+
+  // ── 6. Update date filter label and run analysis ──
+  if (typeof onDateFilterChange === 'function') onDateFilterChange();
+
+  // Restore active tab
+  if (d.activeMode) {
+    state.mode = d.activeMode;
+    document.querySelectorAll('.mode-tab').forEach(t => {
+      const tid = t.id || '';
+      const active = (d.activeMode === 'prepclosing' && tid === 'tab-pc') ||
+                     (d.activeMode === 'attendance'  && tid === 'tab-att') ||
+                     (d.activeMode === 'insights'    && tid === 'tab-ins');
+      t.classList.toggle('active', active);
+    });
+    // Also update the mobile select
+    const sel = document.getElementById('mode-select');
+    if (sel) sel.value = d.activeMode;
+  }
+
+  analyze();
+
+  // ── 7. Re-apply clock overrides from snapshot ──
+  if (clockOverrideSet.size > 0) {
+    const affectedByOverrides = new Set();
+    for (const sKey of clockOverrideSet) {
+      const kparts = sKey.split('|');
+      if (kparts.length < 3) continue;
+      const [nk, odt, otm] = kparts;
+      const det = state.detailMap[nk];
+      if (!det) continue;
+      const entry = det.clockin.find(s => s.date === odt && s.time === otm);
+      if (entry && !entry.hasClock) { entry.hasClock = true; affectedByOverrides.add(nk); }
+    }
+    for (const affKey of affectedByOverrides) {
+      if (typeof recomputeEmployee === 'function') recomputeEmployee(affKey);
+    }
+    if (state._lastBuilt) {
+      for (const rs of state._lastBuilt.rawShifts) {
+        const det2 = state.detailMap[rs.nameKey];
+        if (!det2) continue;
+        const m2 = det2.clockin.find(s => s.date === rs.date && s.startH === rs.startH && s.startM === rs.startM);
+        if (m2) rs.hasClock = m2.hasClock;
+      }
+      state.prepCloseData = buildPrepCloseData(
+        state._lastBuilt.rawShifts, state._lastBuilt.mergedShifts,
+        state._lastBuilt.allResults, state._lastBuilt.totalWeeks
+      );
+    }
+  }
+
+  // ── 8. Re-apply manual overrides ──
+  if (pendingOverrides.length && typeof markWorked === 'function') {
+    pendingOverrides.forEach(sKey => {
+      const parts = sKey.split('|');
+      if (parts.length >= 2) {
+        const nameKey = parts[0];
+        if (!state.overrides.has(sKey)) {
+          state.overrides.add(sKey);
+          const d2 = state.detailMap[nameKey];
+          if (d2) {
+            const entry = d2.clockin.find(s => sKey === (nameKey + '|' + s.date + '|' + s.time));
+            if (entry) entry.hasClock = true;
+          }
+        }
+      }
+    });
+    const affectedKeys = new Set(pendingOverrides.map(k => k.split('|')[0]));
+    affectedKeys.forEach(k => { if (typeof recomputeEmployee === 'function') recomputeEmployee(k); });
+  }
+
+  // ── 9. Render the correct view ──
+  if (d.activeMode === 'prepclosing') {
+    if (state.prepCloseData && typeof renderPrepClose === 'function') renderPrepClose();
+  } else if (d.activeMode === 'insights') {
+    if (typeof renderInsights === 'function') renderInsights();
+  } else {
+    if (typeof renderAttRows === 'function') renderAttRows();
+    if (typeof refreshAttStats === 'function') refreshAttStats();
+  }
+}
+
 function exportSnapshot() {
   // Build a filename from the active date range
   const fromEl = document.getElementById('filter-date-from');
@@ -4344,34 +4753,7 @@ function exportSnapshot() {
   const filename = 'attendance-snapshot-' + rangePart + '.html';
 
   // Serialize all loaded state data as JSON to embed in the snapshot
-  const snapshotData = {
-    absences:  state.absences  || [],
-    clockin:   state.clockin   || [],
-    shifts:    state.shifts    || [],
-    absences2: state.absences2 || [],
-    timesheets: state.timesheets || [],
-    timesheets2: state.timesheets2 || [],
-    clockin2:  state.clockin2  || [],
-    shifts2:   state.shifts2   || [],
-    dateFrom:  fromStr,
-    dateTo:    toStr,
-    manualClosures: [...state.manualClosures],
-    overrides: [...state.overrides],
-    penaltyFreeDays: [...state.penaltyFreeDays],
-    activeMode: state.mode || 'attendance',
-    // Flat map of "nameKey|date|time" -> true for every shift that has hasClock=true
-    // in the current detailMap (includes autocorrections + manual overrides).
-    // Applied after analyze() in the bootstrap so P&C credits are accurate.
-    clockOverrides: (() => {
-      const out = [];
-      for (const [nk, detail] of Object.entries(state.detailMap || {})) {
-        for (const s of detail.clockin) {
-          if (s.hasClock) out.push(`${nk}|${s.date}|${s.time}`);
-        }
-      }
-      return out;
-    })()
-  };
+  const snapshotData = buildSnapshotData();
   const dataJson = JSON.stringify(snapshotData);
 
   // Build the bootstrap script — runs after page scripts via defer-like polling
