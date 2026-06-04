@@ -438,20 +438,28 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
          setting one never disturbs the other. The filter above is the view window
          and auto-expands to cover whatever periods you've set. -->
     <div class="sidebar-label" style="margin-top:12px">Live Periods</div>
+    <div id="live-periods-hint" style="font-size:10px;color:#9ca3af;margin-bottom:4px;display:none"></div>
     <div class="period-header p1">Period 1</div>
     <div class="date-filter-row">
       <input type="date" id="p1-from" title="Period 1 from date">
       <span>→</span>
-      <input type="date" id="p1-to" title="Period 1 to date">
+      <input type="date" id="p1-to" onchange="syncPeriod2Start()" title="Period 1 end — the split point. Period 2 starts the next day.">
     </div>
-    <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">&#9889; Set Period 1</button>
-    <div class="period-header p2" style="margin-top:8px">Period 2 <span style="font-weight:400;opacity:.7">(optional)</span></div>
+    <div class="btn-row">
+      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">&#9889; Set Period 1</button>
+      <button class="btn-compact" id="view-p1-btn" onclick="viewPeriod('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Show only Period 1 in the analysis view">&#128065; View</button>
+    </div>
+    <div class="period-header p2" style="margin-top:8px">Period 2 <span style="font-weight:400;opacity:.7">(starts after Period 1)</span></div>
     <div class="date-filter-row">
-      <input type="date" id="p2-from" title="Period 2 from date">
+      <input type="date" id="p2-from" readonly tabindex="-1" style="background:#f3f4f6;color:#6b7280" title="Auto: the day after Period 1 ends">
       <span>→</span>
       <input type="date" id="p2-to" title="Period 2 to date">
     </div>
-    <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">&#9889; Set Period 2</button>
+    <div class="btn-row">
+      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">&#9889; Set Period 2</button>
+      <button class="btn-compact" id="view-p2-btn" onclick="viewPeriod('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9" title="Show only Period 2 in the analysis view">&#128065; View</button>
+    </div>
+    <button class="export-btn" id="view-all-btn" onclick="viewAllData()" style="margin-top:4px;background:#f9fafb;border-color:#d1d5db;color:#374151;font-size:11px" title="Reset the view to show all loaded data">&#8635; View All Data</button>
     <div id="set-period-msg" class="snap-msg" style="display:none"></div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled style="margin-top:6px">Analyze</button>
 
@@ -4415,7 +4423,7 @@ function updateStickyOffsets() {
 window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
-document.addEventListener('DOMContentLoaded', () => { renderPenaltyFreeSidebar(); restoreUploadSectionState(); });
+document.addEventListener('DOMContentLoaded', () => { renderPenaltyFreeSidebar(); restoreUploadSectionState(); prefillPeriodsFromSemester(); });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
 const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
@@ -4768,6 +4776,82 @@ async function setPeriodFromLive(period) {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = prev || ('&#9889; Set Period ' + period); }
   }
+}
+
+// ── Live period date helpers ──────────────────────────────────────────────
+function ymdAddDays(ymd, n) {
+  const [y, mo, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, mo - 1, d) + n * 86400000).toISOString().slice(0, 10);
+}
+function ymdDiffDays(a, b) { // (b - a) in whole days
+  const pa = a.split('-').map(Number), pb = b.split('-').map(Number);
+  return Math.round((Date.UTC(pb[0], pb[1] - 1, pb[2]) - Date.UTC(pa[0], pa[1] - 1, pa[2])) / 86400000);
+}
+// Split an inclusive [start,end] date range into two contiguous halves.
+function semesterHalves(start, end) {
+  const n = ymdDiffDays(start, end) + 1;
+  const half = Math.max(1, Math.floor(n / 2));
+  return { p1: { from: start, to: ymdAddDays(start, half - 1) },
+           p2: { from: ymdAddDays(start, half), to: end } };
+}
+
+// Point the analysis view filter at one period's range (what was last pulled,
+// falling back to its current inputs) without re-pulling any data.
+function viewPeriod(period) {
+  const tracked = state.livePeriodRanges && state.livePeriodRanges[period];
+  const from = tracked ? tracked.from : (document.getElementById('p' + period + '-from').value || '').trim();
+  const to   = tracked ? tracked.to   : (document.getElementById('p' + period + '-to').value   || '').trim();
+  if (!from || !to) { setPeriodMsg('Period ' + period + ' has no range to view yet', true); return; }
+  document.getElementById('filter-date-from').value = from;
+  document.getElementById('filter-date-to').value   = to;
+  onDateFilterChange();
+  setPeriodMsg('Viewing Period ' + period + ': ' + from + ' → ' + to);
+}
+
+// Reset the analysis view to show everything loaded (no date bound).
+function viewAllData() {
+  clearDateFilter();
+  setPeriodMsg('Viewing all loaded data');
+}
+
+// Keep Period 2's start glued to the day after Period 1 ends, so adjusting the
+// split only needs Period 1's end date (p2-from is read-only/derived).
+function syncPeriod2Start() {
+  const p1to = (document.getElementById('p1-to').value || '').trim();
+  const p2from = document.getElementById('p2-from');
+  if (p2from && p1to) p2from.value = ymdAddDays(p1to, 1);
+}
+
+// Best-effort: pre-fill the period inputs from the active semester, split into
+// halves (the user's first-half vs second-half comparison), and offer to pull
+// both right away (once per browser session). Skips if the user already typed a
+// range, or if the live endpoint isn't reachable (e.g. local).
+async function prefillPeriodsFromSemester() {
+  if (!analyzerWorkerReady()) return;
+  const anyFilled = ['p1-from','p1-to','p2-from','p2-to']
+    .some(id => { const el = document.getElementById(id); return el && (el.value || '').trim(); });
+  if (anyFilled) return;
+  let data;
+  try { data = await analyzerApiCall('GET', '/semesters'); } catch (e) { return; }
+  const sem = data && data.active;
+  if (!sem || !sem.start_date || !sem.end_date) return;
+  const h = semesterHalves(sem.start_date, sem.end_date);
+  document.getElementById('p1-from').value = h.p1.from;
+  document.getElementById('p1-to').value   = h.p1.to;
+  document.getElementById('p2-to').value   = h.p2.to;
+  syncPeriod2Start(); // p2-from = day after p1-to
+  const hint = document.getElementById('live-periods-hint');
+  if (hint) { hint.textContent = sem.name + ' · pre-split into halves'; hint.style.display = 'block'; }
+
+  // Offer to load both halves now — once per session so reloads don't nag.
+  let asked = false;
+  try { asked = sessionStorage.getItem('analyzerAutoloadAsked') === '1'; } catch (e) {}
+  if (asked) return;
+  try { sessionStorage.setItem('analyzerAutoloadAsked', '1'); } catch (e) {}
+  const ok = confirm(`Load ${sem.name} now?\n\nPeriod 1: ${h.p1.from} → ${h.p1.to}\nPeriod 2: ${h.p2.from} → ${h.p2.to}\n\nPulls both halves from the scheduler. You can also adjust the dates and use the Set buttons.`);
+  if (!ok) return;
+  await setPeriodFromLive('1');
+  await setPeriodFromLive('2');
 }
 
 async function deleteAnalyzerSnapshot(name) {
