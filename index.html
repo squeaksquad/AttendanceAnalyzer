@@ -434,13 +434,26 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <span style="font-size:10px;color:#9ca3af" id="date-filter-label">All dates</span>
       <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
     </div>
-    <!-- Pull live scheduler data for the range above into a period (no spreadsheets) -->
-    <div class="btn-row">
-      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the date range above into Period 1">&#9889; Set Period 1</button>
-      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:0;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the date range above into Period 2">&#9889; Set Period 2</button>
+    <!-- Live periods: each has its own range so you can see both at a glance and
+         setting one never disturbs the other. The filter above is the view window
+         and auto-expands to cover whatever periods you've set. -->
+    <div class="sidebar-label" style="margin-top:12px">Live Periods</div>
+    <div class="period-header p1">Period 1</div>
+    <div class="date-filter-row">
+      <input type="date" id="p1-from" title="Period 1 from date">
+      <span>→</span>
+      <input type="date" id="p1-to" title="Period 1 to date">
     </div>
+    <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">&#9889; Set Period 1</button>
+    <div class="period-header p2" style="margin-top:8px">Period 2 <span style="font-weight:400;opacity:.7">(optional)</span></div>
+    <div class="date-filter-row">
+      <input type="date" id="p2-from" title="Period 2 from date">
+      <span>→</span>
+      <input type="date" id="p2-to" title="Period 2 to date">
+    </div>
+    <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">&#9889; Set Period 2</button>
     <div id="set-period-msg" class="snap-msg" style="display:none"></div>
-    <button class="run-btn" id="run-btn" onclick="analyze()" disabled>Analyze</button>
+    <button class="run-btn" id="run-btn" onclick="analyze()" disabled style="margin-top:6px">Analyze</button>
 
     <!-- Clock discrepancy row: main button + compact undo -->
     <div class="btn-row">
@@ -4693,18 +4706,19 @@ function applyLiveUsers(rows) {
 }
 
 /**
- * Pull live scheduler data for the date range in the Date Range Filter and load
- * it into Period 1 or Period 2 — the live-data equivalent of pointing each
- * period at a folder of WhenIWork exports. Setting one period leaves the other
- * untouched, and the global filter expands to span every period that's been set
+ * Pull live scheduler data for a period's OWN date range and load it into
+ * Period 1 or Period 2 — the live-data equivalent of pointing each period at a
+ * folder of WhenIWork exports. Each period has its own From/To inputs, so the
+ * ranges stay visible and setting one period never disturbs the other. The
+ * Date Range Filter (view window) expands to span every period that's been set
  * so the merged analysis (and Insights compare) covers all of it.
  */
 async function setPeriodFromLive(period) {
   if (!analyzerWorkerReady()) { setPeriodMsg('Worker URL not configured', true); return; }
-  const from = (document.getElementById('filter-date-from').value || '').trim();
-  const to   = (document.getElementById('filter-date-to').value   || '').trim();
-  if (!from || !to) { setPeriodMsg('Set a From and To date above first, then Set Period ' + period, true); return; }
-  if (from > to)    { setPeriodMsg('From date is after To date', true); return; }
+  const from = (document.getElementById('p' + period + '-from').value || '').trim();
+  const to   = (document.getElementById('p' + period + '-to').value   || '').trim();
+  if (!from || !to) { setPeriodMsg('Set Period ' + period + "'s From and To dates first", true); return; }
+  if (from > to)    { setPeriodMsg('Period ' + period + ' From date is after its To date', true); return; }
 
   const btn = document.getElementById(period === '2' ? 'set-p2-btn' : 'set-p1-btn');
   const prev = btn ? btn.innerHTML : '';
