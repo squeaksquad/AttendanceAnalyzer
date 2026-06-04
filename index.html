@@ -441,6 +441,10 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <button class="btn-compact" id="export-btn" onclick="exportReport()" disabled title="Export to Excel">Excel</button>
     </div>
 
+    <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
+    <button class="export-btn" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Pull live scheduler data for the selected date range">&#9889; Load Live Data</button>
+    <div id="live-msg" class="snap-msg" style="display:none"></div>
+
     <!-- Snapshot browser -->
     <button class="export-btn snap-toggle" id="snap-toggle-btn" onclick="toggleSnapPanel()" style="margin-top:4px">&#128451; Snapshots</button>
     <div class="snap-panel" id="snap-panel" style="display:none">
@@ -918,6 +922,18 @@ function fmtDate(v) {
     return `${MONTHS[p.mo]} ${p.d}, ${p.y}`;
 }
 
+// Format a full timestamp (Date object, ISO/local string, Excel serial, or WiW
+// string) for display, e.g. "Mar 12, 2026, 3:45 PM". Empty in → '';
+// unparseable in → the raw value. Used to surface drop/absence event times.
+function fmtTimestamp(v) {
+    if (v === null || v === undefined || v === '') return '';
+    let d = v instanceof Date ? v
+          : (typeof v === 'number' ? new Date(Math.round((v - 25569) * 86400000))
+          : new Date(v));
+    if (isNaN(d.getTime())) return String(v);
+    return d.toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 const LATE_THRESHOLD_MINUTES = 10; // flag as late if > this many minutes after scheduled start
@@ -1268,7 +1284,8 @@ function buildResults() {
     detail[normName(empName)].absences.push({
       date:fmtDate(row['Shift Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`,
       site:row['Job Site']||'', position:row['Position']||'', notice:row['Notice']||'',
-      reporter, note:row['Reporter Note']||'', action:row['Action']||'', isSelf
+      reporter, note:row['Reporter Note']||'', action:row['Action']||'', isSelf,
+      reportedAt:row['Reported At']||row['Created At']||''
     });
   }
 
@@ -1292,7 +1309,7 @@ function buildResults() {
           const picker=get(acceptedBy);
           if(picker) {
             picker.picked_up++;
-            detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'' });
+            detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
           }
         }
       } else {
@@ -1303,7 +1320,7 @@ function buildResults() {
       }
       // Covered/accepted drops: WhenIWork removes these from Shifts Worked entirely.
       // They don't count against dropper's attendance per policy, so no action needed.
-      detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'' });
+      detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
     }
   }
 
@@ -2865,17 +2882,24 @@ function buildAttDetail(key,r) {
       <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span>${absPfd}</div>
       <div class="di-meta">${[a.time,a.site,a.position].filter(Boolean).map(esc).join(' · ')}${a.action&&a.action!=='None'?' · '+esc(a.action):''}</div>
       ${!a.isSelf?`<div class="di-meta">Reported by: <strong>${esc(a.reporter)}</strong></div>`:''}
+      ${a.reportedAt?`<div class="di-meta">Reported: <strong>${esc(fmtTimestamp(a.reportedAt))}</strong>${a.notice?` · ${esc(a.notice)} notice`:''}</div>`:(a.notice?`<div class="di-meta">${esc(a.notice)} notice</div>`:'')}
       ${a.note?`<div class="di-note">${esc(a.note)}</div>`:''}
     </div>`;
   }).join('');
   const shiftHtml=!shifts.length?'<p class="detail-empty">No shift requests</p>':shifts.map(s=>{
     const [bcls,btxt]=s.type==='pickup'?['filled','Covered for Others']:s.type==='swap'?['swap','Swap']:['drop','Drop'];
     const dropPfd = s.type !== 'pickup' && isPFD(s.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
+    const tsParts = [
+      s.createdAt  ? `Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>` : '',
+      s.acceptedAt ? `Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>` : '',
+      s.decidedAt  ? `Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>` : '',
+    ].filter(Boolean);
     return `<div class="detail-item">
       <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${dropPfd}${s.status?' · '+esc(s.status):''}</div>
       <div class="di-meta">${[s.time,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.acceptedBy?`<div class="di-meta">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
       ${s.coveredFor?`<div class="di-meta">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
+      ${tsParts.length?`<div class="di-meta">${tsParts.join(' · ')}</div>`:''}
       ${s.message?`<div class="di-note">${esc(s.message)}</div>`:''}
     </div>`;
   }).join('');
@@ -4549,6 +4573,51 @@ async function loadAnalyzerSnapshot(name) {
   renderSnapList();
 }
 
+/**
+ * Pull live scheduler data (D1) for the selected date range and run analysis,
+ * instead of loading WhenIWork .xlsx exports. The Worker maps its scheduler
+ * tables into the same canonical object restoreSnapshotData() consumes, so the
+ * result behaves exactly like a loaded snapshot — including being saveable as a
+ * frozen historical snapshot afterward via Save. Uses the date filter inputs
+ * if set; otherwise the Worker defaults to the trailing 8 weeks.
+ */
+function liveMsg(text, isError) {
+  const el = document.getElementById('live-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'snap-msg ' + (isError ? 'err' : 'ok');
+  el.style.display = text ? 'block' : 'none';
+  if (text && !isError) setTimeout(() => { if (el.textContent === text) el.style.display = 'none'; }, 6000);
+}
+
+async function loadLiveData() {
+  if (!analyzerWorkerReady()) { liveMsg('Worker URL not configured', true); return; }
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  const from = (fromEl && fromEl.value) ? fromEl.value : '';
+  const to   = (toEl   && toEl.value)   ? toEl.value   : '';
+  const qs = [];
+  if (from) qs.push('from=' + encodeURIComponent(from));
+  if (to)   qs.push('to='   + encodeURIComponent(to));
+
+  const btn = document.getElementById('live-btn');
+  const prevLabel = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '&#9203; Loading…'; }
+  liveMsg('Pulling live scheduler data…');
+  try {
+    const d = await analyzerApiCall('GET', '/live' + (qs.length ? '?' + qs.join('&') : ''));
+    restoreSnapshotData(d);
+    const c = d._meta && d._meta.counts;
+    liveMsg(c
+      ? `Live data loaded — ${c.clockin} shifts, ${c.absences} absences, ${c.timesheets} timesheets, ${c.users} users`
+      : 'Live data loaded');
+  } catch (e) {
+    liveMsg('Live load failed: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = prevLabel || '&#9889; Load Live Data'; }
+  }
+}
+
 async function deleteAnalyzerSnapshot(name) {
   if (!analyzerWorkerReady()) return;
   if (!confirm(`Delete snapshot "${name}"?`)) return;
@@ -5451,6 +5520,7 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
     : detail.absences.map(a => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;margin-bottom:8px">
         <div style="font-weight:600;margin-bottom:4px">${esc(a.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${a.isSelf?'#f3f4f6':'#fef3c7'};color:${a.isSelf?'#374151':'#92400e'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span></div>
         <div style="color:#6b7280;font-size:12px">${esc(a.time)}</div>
+        ${a.reportedAt?`<div style="font-size:12px;color:#555;margin-top:3px">Reported: <strong>${esc(fmtTimestamp(a.reportedAt))}</strong>${a.notice?` · ${esc(a.notice)} notice`:''}</div>`:(a.notice?`<div style="font-size:12px;color:#555;margin-top:3px">${esc(a.notice)} notice</div>`:'')}
         ${a.note ? `<div style="font-style:italic;color:#555;font-size:12px;margin-top:4px">${esc(a.note)}</div>` : ''}
       </div>`).join('');
 
@@ -5463,6 +5533,7 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
           <div style="color:#6b7280;font-size:12px">${esc(s.time)}</div>
           ${s.acceptedBy?`<div style="font-size:12px;color:#555;margin-top:3px">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
           ${s.coveredFor?`<div style="font-size:12px;color:#555;margin-top:3px">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
+          ${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).length?`<div style="font-size:12px;color:#555;margin-top:3px">${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).join(' · ')}</div>`:''}
         </div>`;
       }).join('');
 
