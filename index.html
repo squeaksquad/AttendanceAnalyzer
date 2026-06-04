@@ -49,6 +49,11 @@ header span { font-size: 12px; color: #888; }
 .sidebar { background: #fff; border-right: 1px solid #ddd; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 16; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; }
 .sidebar-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #999; margin-top: 12px; margin-bottom: 2px; }
 .sidebar-label:first-child { margin-top: 0; }
+.sidebar-label.collapsible { cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none; }
+.sidebar-label.collapsible:hover { color: #6b7280; }
+.sidebar-label .caret { display: inline-block; transition: transform .15s; font-size: 9px; color: #bbb; }
+.sidebar-label.collapsed .caret { transform: rotate(-90deg); }
+.collapsible-body.collapsed { display: none; }
 .period-header { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 3px; padding: 1px 6px; margin-bottom: 2px; display: inline-block; }
 .period-header.p1 { background: #1d4ed8; }
 .period-header.p2 { background: #7c3aed; }
@@ -347,7 +352,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 <div class="ins-tooltip" id="ins-tooltip"></div>
 <div class="workspace">
   <div class="sidebar">
-    <div class="sidebar-label">Upload Reports</div>
+    <div class="sidebar-label collapsible" id="upload-section-label" onclick="toggleUploadSection()"><span class="caret">▼</span> Upload Reports</div>
+    <div class="collapsible-body" id="upload-section-body">
     <label class="folder-btn" id="folder-btn">
       <input type="file" id="folder-input" webkitdirectory multiple accept=".xlsx,.xls,.csv" onchange="loadFolder(event,'1')">
       <span class="folder-label">📁 Point to Folder (Period 1)</span>
@@ -408,6 +414,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <div class="zone-sub">Actual clock in/out times</div>
       <div class="zone-status" id="status-timesheets2"></div>
     </div>
+    </div><!-- /#upload-section-body -->
 
     <div class="sidebar-label" style="margin-top:12px">Worker Portal</div>
     <div class="upload-zone" id="zone-users" ondragover="dragOver(event,'zone-users')" ondragleave="dragLeave('zone-users')" ondrop="dropFile(event,'users')">
@@ -427,6 +434,12 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <span style="font-size:10px;color:#9ca3af" id="date-filter-label">All dates</span>
       <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
     </div>
+    <!-- Pull live scheduler data for the range above into a period (no spreadsheets) -->
+    <div class="btn-row">
+      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the date range above into Period 1">&#9889; Set Period 1</button>
+      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:0;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the date range above into Period 2">&#9889; Set Period 2</button>
+    </div>
+    <div id="set-period-msg" class="snap-msg" style="display:none"></div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled>Analyze</button>
 
     <!-- Clock discrepancy row: main button + compact undo -->
@@ -4389,7 +4402,7 @@ function updateStickyOffsets() {
 window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
-document.addEventListener('DOMContentLoaded', () => renderPenaltyFreeSidebar());
+document.addEventListener('DOMContentLoaded', () => { renderPenaltyFreeSidebar(); restoreUploadSectionState(); });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
 const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
@@ -4615,6 +4628,131 @@ async function loadLiveData() {
     liveMsg('Live load failed: ' + e.message, true);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = prevLabel || '&#9889; Load Live Data'; }
+  }
+}
+
+// Collapse/expand the sidebar's Upload Reports section (spreadsheet drop zones).
+// Handy once you're pulling live data and rarely upload WhenIWork exports.
+function toggleUploadSection() {
+  const label = document.getElementById('upload-section-label');
+  const body  = document.getElementById('upload-section-body');
+  if (!label || !body) return;
+  const collapsed = body.classList.toggle('collapsed');
+  label.classList.toggle('collapsed', collapsed);
+  try { localStorage.setItem('analyzerUploadCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+}
+function restoreUploadSectionState() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('analyzerUploadCollapsed') === '1'; } catch (e) {}
+  if (!collapsed) return;
+  const label = document.getElementById('upload-section-label');
+  const body  = document.getElementById('upload-section-body');
+  if (label && body) { body.classList.add('collapsed'); label.classList.add('collapsed'); }
+}
+
+function setPeriodMsg(text, isError) {
+  const el = document.getElementById('set-period-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'snap-msg ' + (isError ? 'err' : 'ok');
+  el.style.display = text ? 'block' : 'none';
+  if (text && !isError) setTimeout(() => { if (el.textContent === text) el.style.display = 'none'; }, 6000);
+}
+
+// Mark an upload zone as loaded (mirrors loadFile's success state) for live pulls.
+function markLiveZone(type, count) {
+  const z = document.getElementById('zone-' + type);
+  const s = document.getElementById('status-' + type);
+  if (z) { z.classList.add('loaded'); z.classList.remove('drag-over', 'error'); }
+  if (s) { s.className = 'zone-status ok'; s.textContent = '✓ ' + count + ' rows loaded'; }
+}
+
+// Rebuild the user/email/role maps from live `users` rows (same parsing as loadFile).
+function applyLiveUsers(rows) {
+  if (!rows || !rows.length) return;
+  const userMap = {}, emailMap = {};
+  for (const row of rows) {
+    const fn = (row['First Name'] || '').toString().trim();
+    const ln = (row['Last Name']  || '').toString().trim();
+    if (!fn && !ln) continue;
+    const fullName = (fn + ' ' + ln).trim();
+    const key = normName(fullName);
+    const email = (row['Email'] || '').toString().trim().toLowerCase();
+    const position = (row['Positions'] || row['Position'] || '').toString().trim();
+    let role = 'assistant';
+    if (position.includes('Manager')) role = 'manager';
+    else if (position.includes('Consultant')) role = 'manager';
+    if (key) { userMap[key] = { email, role, name: fullName }; if (email) emailMap[key] = email; }
+  }
+  state.users = rows; state.userMap = userMap; state.emailMap = emailMap;
+  const z = document.getElementById('zone-users');
+  const s = document.getElementById('status-users');
+  if (z) z.classList.add('loaded');
+  if (s) { s.className = 'zone-status ok'; s.textContent = '✓ ' + Object.keys(userMap).length + ' employees loaded'; }
+  renderUserEmailsIfOpen();
+}
+
+/**
+ * Pull live scheduler data for the date range in the Date Range Filter and load
+ * it into Period 1 or Period 2 — the live-data equivalent of pointing each
+ * period at a folder of WhenIWork exports. Setting one period leaves the other
+ * untouched, and the global filter expands to span every period that's been set
+ * so the merged analysis (and Insights compare) covers all of it.
+ */
+async function setPeriodFromLive(period) {
+  if (!analyzerWorkerReady()) { setPeriodMsg('Worker URL not configured', true); return; }
+  const from = (document.getElementById('filter-date-from').value || '').trim();
+  const to   = (document.getElementById('filter-date-to').value   || '').trim();
+  if (!from || !to) { setPeriodMsg('Set a From and To date above first, then Set Period ' + period, true); return; }
+  if (from > to)    { setPeriodMsg('From date is after To date', true); return; }
+
+  const btn = document.getElementById(period === '2' ? 'set-p2-btn' : 'set-p1-btn');
+  const prev = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '&#9203; Loading…'; }
+  setPeriodMsg('Pulling Period ' + period + ' (' + from + ' → ' + to + ')…');
+  try {
+    const d = await analyzerApiCall('GET', '/live?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+    if (period === '2') {
+      state.absences2 = d.absences || []; state.clockin2 = d.clockin || [];
+      state.shifts2   = d.shifts   || []; state.timesheets2 = d.timesheets || [];
+      markLiveZone('absences2', state.absences2.length);
+      markLiveZone('clockin2',  state.clockin2.length);
+      markLiveZone('shifts2',   state.shifts2.length);
+      markLiveZone('timesheets2', state.timesheets2.length);
+    } else {
+      state.absences = d.absences || []; state.clockin = d.clockin || [];
+      state.shifts   = d.shifts   || []; state.timesheets = d.timesheets || [];
+      markLiveZone('absences', state.absences.length);
+      markLiveZone('clockin',  state.clockin.length);
+      markLiveZone('shifts',   state.shifts.length);
+      markLiveZone('timesheets', state.timesheets.length);
+    }
+    applyLiveUsers(d.users);
+
+    // Track each set period's range; expand the global filter to their union.
+    state.livePeriodRanges = state.livePeriodRanges || {};
+    state.livePeriodRanges[period] = { from, to };
+    const froms = [], tos = [];
+    for (const r of Object.values(state.livePeriodRanges)) { if (r.from) froms.push(r.from); if (r.to) tos.push(r.to); }
+    froms.sort(); tos.sort();
+    document.getElementById('filter-date-from').value = froms[0];
+    document.getElementById('filter-date-to').value   = tos[tos.length - 1];
+
+    // Enable the action buttons (mirrors restoreSnapshotData).
+    checkReady();
+    ['snapshot-btn','export-btn','correct-btn','worker-pdf-btn','bulk-pdf-btn','github-push-btn']
+      .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+    if (typeof populateWorkerDropdown === 'function') populateWorkerDropdown();
+    onDateFilterChange(); // refreshes the label and re-analyzes if ready
+
+    const c = d._meta && d._meta.counts;
+    const detail = c ? ` — ${c.clockin} shifts, ${c.absences} absences` : '';
+    setPeriodMsg('Period ' + period + ' set: ' + from + ' → ' + to + detail
+      + (document.getElementById('run-btn').disabled ? ' (Set Period 1 to run analysis)' : ''));
+  } catch (e) {
+    setPeriodMsg('Set Period ' + period + ' failed: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = prev || ('&#9889; Set Period ' + period); }
   }
 }
 
