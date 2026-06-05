@@ -4416,14 +4416,15 @@ function updateStickyOffsets() {
   const stickyLeft0  = sidebarHidden ? '0px'   : '260px';
   const stickyLeft28 = sidebarHidden ? '28px'  : '288px';
 
-  // Fix inline-styled sticky th cells in thead (left:260px / left:288px)
-  document.querySelectorAll('thead th[style*="left:260px"], thead th[style*="left: 260px"]')
-    .forEach(th => { th.style.left = stickyLeft0; });
-  document.querySelectorAll('thead th[style*="left:288px"], thead th[style*="left: 288px"]')
-    .forEach(th => { th.style.left = stickyLeft28; });
-  // Fix inline-styled sticky td cells in tbody (P&C name-cell)
-  document.querySelectorAll('tbody td[style*="left:288px"], tbody td[style*="left: 288px"]')
-    .forEach(td => { td.style.left = stickyLeft28; });
+  // Keep sticky row-label columns aligned with either the sidebar edge or the
+  // viewport edge when the sidebar is collapsed.
+  document.querySelectorAll('thead th[style*="position:sticky"]').forEach(th => {
+    const label = (th.textContent || '').trim();
+    const isNameHeader = label === 'Employee' || th.style.minWidth;
+    th.style.left = isNameHeader ? stickyLeft28 : stickyLeft0;
+  });
+  document.querySelectorAll('td.expand-arrow').forEach(td => { td.style.left = stickyLeft0; });
+  document.querySelectorAll('td.name-cell').forEach(td => { td.style.left = stickyLeft28; });
 
   // Set group-row and col-row sticky tops
   const groupRow = document.querySelector('thead tr.group-row');
