@@ -4418,9 +4418,10 @@ function updateStickyOffsets() {
 
   // Keep sticky row-label columns aligned with either the sidebar edge or the
   // viewport edge when the sidebar is collapsed.
-  document.querySelectorAll('thead th[style*="position:sticky"]').forEach(th => {
+  document.querySelectorAll('thead th').forEach(th => {
+    if (th.style.position !== 'sticky') return;
     const label = (th.textContent || '').trim();
-    const isNameHeader = label === 'Employee' || th.style.minWidth;
+    const isNameHeader = label === 'Employee';
     th.style.left = isNameHeader ? stickyLeft28 : stickyLeft0;
   });
   document.querySelectorAll('td.expand-arrow').forEach(td => { td.style.left = stickyLeft0; });
