@@ -16,7 +16,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; f
 /* ── Header ── */
 header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; z-index: 20; }
 header h1 { font-size: 15px; font-weight: 700; color: #111; }
-header span { font-size: 12px; color: #888; }
+header span { font-size: 12px; color: #6b7280; font-weight: 600; }
 .date-range-pill { font-size: 11px; font-weight: 600; color: #4b5563; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; padding: 3px 9px; display: none; white-space: nowrap; }
 .date-range-pill.visible { display: inline-block; }
 
@@ -46,18 +46,18 @@ header span { font-size: 12px; color: #888; }
 .workspace { display: block; margin-left: 260px; min-height: calc(100vh - var(--header-h, 45px)); min-width: 640px; }
 
 /* ── Sidebar ── */
-.sidebar { background: #fff; border-right: 1px solid #ddd; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 16; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; }
-.sidebar-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #999; margin-top: 12px; margin-bottom: 2px; }
+.sidebar { background: #fbfbfa; border-right: 1px solid #d9dde3; padding: 14px; display: flex; flex-direction: column; gap: 6px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 16; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; }
+.sidebar-label { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; margin-top: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .sidebar-label:first-child { margin-top: 0; }
 .sidebar-label.collapsible { cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none; }
 .sidebar-label.collapsible:hover { color: #6b7280; }
 .sidebar-label .caret { display: inline-block; transition: transform .15s; font-size: 9px; color: #bbb; }
 .sidebar-label.collapsed .caret { transform: rotate(-90deg); }
 .collapsible-body.collapsed { display: none; }
-.period-header { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 3px; padding: 1px 6px; margin-bottom: 2px; display: inline-block; }
+.period-header { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 5px; padding: 3px 7px; margin: 6px 0 1px; display: inline-flex; align-items: center; gap: 4px; }
 .period-header.p1 { background: #1d4ed8; }
 .period-header.p2 { background: #7c3aed; }
-.upload-zone { border: 1px solid #e8e8e8; border-radius: 3px; padding: 3px 8px 3px 12px; cursor: pointer; transition: all .15s; position: relative; background: #fafafa; display: flex; align-items: center; gap: 6px; margin-left: 4px; }
+.upload-zone { border: 1px solid #dfe4ec; border-radius: 7px; padding: 7px 9px; cursor: pointer; transition: all .15s; position: relative; background: #fff; display: flex; align-items: center; gap: 7px; margin-left: 0; min-height: 36px; }
 .upload-zone:hover, .upload-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
 .upload-zone.loaded { border-color: #22c55e; background: #f0fdf4; }
 .upload-zone.error  { border-color: #ef4444; background: #fef2f2; }
@@ -67,17 +67,22 @@ header span { font-size: 12px; color: #888; }
 .zone-status { font-size: 10px; margin-left: auto; white-space: nowrap; }
 .zone-status.ok  { color: #16a34a; }
 .zone-status.err { color: #dc2626; }
-.date-filter-row { display: flex; gap: 4px; align-items: center; margin-top: 4px; }
-.date-filter-row input[type=date] { flex: 1; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 6px; font-size: 11px; color: #374151; background: #fff; min-width: 0; }
+.date-filter-row { display: flex; gap: 5px; align-items: center; margin-top: 4px; }
+.date-filter-row input[type=date] { flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 7px; font-size: 11px; color: #374151; background: #fff; min-width: 0; }
 .date-filter-row span { font-size: 10px; color: #9ca3af; flex-shrink: 0; }
 .date-clear-btn { font-size: 10px; color: #6b7280; background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; margin-top: 2px; }
-.run-btn { margin-top: 8px; background: #1d4ed8; color: #fff; border: none; padding: 9px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px; width: 100%; transition: background .15s; }
+.run-btn { margin-top: 8px; background: #1d4ed8; color: #fff; border: none; padding: 10px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: background .15s; }
 .run-btn:hover { background: #1e40af; }
 .run-btn:disabled { background: #bfdbfe; color: #93c5fd; cursor: not-allowed; }
-.export-btn { background: #fff; color: #374151; border: 1px solid #d1d5db; padding: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 4px; width: 100%; transition: all .15s; margin-top: 4px; }
+.export-btn { background: #fff; color: #374151; border: 1px solid #d1d5db; padding: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: all .15s; margin-top: 4px; }
 .export-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
 .export-btn:disabled { opacity: .4; cursor: not-allowed; }
-.info-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.9; }
+.info-box { background: #fff; border: 1px solid #e5e7eb; border-radius: 7px; padding: 9px 11px; font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.8; }
+.info-box summary { cursor: pointer; user-select: none; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; list-style: none; }
+.info-box summary::-webkit-details-marker { display: none; }
+.info-box summary::before { content: '▶'; display: inline-block; font-size: 9px; color: #9ca3af; margin-right: 6px; transition: transform .15s; }
+.info-box[open] summary::before { transform: rotate(90deg); }
+.info-box-body { margin-top: 8px; }
 .info-box strong { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; display: block; margin-top: 8px; margin-bottom: 1px; }
 .info-box strong:first-child { margin-top: 0; }
 
@@ -328,7 +333,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 <header>
   <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">☰</button>
   <h1>Attendance Analyzer</h1>
-  <span>WhenIWork · Internal Management Tool</span>
+  <span>Studio Operations · Internal Management Tool</span>
   <span class="date-range-pill" id="date-range-pill"></span>
   <div class="mode-tabs">
     <button class="mode-tab active" onclick="setMode('attendance')" id="tab-att">Attendance</button>
@@ -345,8 +350,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 
 <div class="drop-overlay" id="drop-overlay">
   <div class="drop-overlay-inner">
-    <p>Drop your WhenIWork files here</p>
-    <small>Absences · Shifts Worked · Shift Requests — all three at once</small>
+    <p>Drop your attendance files here</p>
+    <small>Absences · Shifts Worked · Shift Requests — all at once</small>
   </div>
 </div>
 <div class="ins-tooltip" id="ins-tooltip"></div>
@@ -416,15 +421,15 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     </div>
     </div><!-- /#upload-section-body -->
 
-    <div class="sidebar-label" style="margin-top:12px">Worker Portal</div>
+    <div class="sidebar-label" style="margin-top:12px">Roster</div>
     <div class="upload-zone" id="zone-users" ondragover="dragOver(event,'zone-users')" ondragleave="dragLeave('zone-users')" ondrop="dropFile(event,'users')">
       <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile(event,'users')">
       <div class="zone-title">👥 Users Report</div>
-      <div class="zone-sub">Emails &amp; roles from WhenIWork</div>
+      <div class="zone-sub">Emails &amp; portal roles</div>
       <div class="zone-status" id="status-users"></div>
     </div>
 
-    <div class="sidebar-label" style="margin-top:12px">Date Range Filter</div>
+    <div class="sidebar-label" style="margin-top:12px">Analysis Range</div>
     <div class="date-filter-row">
       <input type="date" id="filter-date-from" onchange="onDateFilterChange()" title="From date">
       <span>→</span>
@@ -437,7 +442,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <!-- Live periods: each has its own range so you can see both at a glance and
          setting one never disturbs the other. The filter above is the view window
          and auto-expands to cover whatever periods you've set. -->
-    <div class="sidebar-label" style="margin-top:12px">Live Periods</div>
+    <div class="sidebar-label" style="margin-top:12px">Live Data Periods</div>
     <div id="live-periods-hint" style="font-size:10px;color:#9ca3af;margin-bottom:4px;display:none"></div>
     <div class="period-header p1">Period 1</div>
     <div class="date-filter-row">
@@ -446,8 +451,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <input type="date" id="p1-to" onchange="syncPeriod2Start()" title="Period 1 end — the split point. Period 2 starts the next day.">
     </div>
     <div class="btn-row">
-      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">&#9889; Set Period 1</button>
-      <button class="btn-compact" id="view-p1-btn" onclick="viewPeriod('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Show only Period 1 in the analysis view">&#128065; View</button>
+      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">Set Period 1</button>
+      <button class="btn-compact" id="view-p1-btn" onclick="viewPeriod('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Show only Period 1 in the analysis view">View</button>
     </div>
     <div class="period-header p2" style="margin-top:8px">Period 2 <span style="font-weight:400;opacity:.7">(starts after Period 1)</span></div>
     <div class="date-filter-row">
@@ -456,31 +461,31 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <input type="date" id="p2-to" title="Period 2 to date">
     </div>
     <div class="btn-row">
-      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">&#9889; Set Period 2</button>
-      <button class="btn-compact" id="view-p2-btn" onclick="viewPeriod('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9" title="Show only Period 2 in the analysis view">&#128065; View</button>
+      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">Set Period 2</button>
+      <button class="btn-compact" id="view-p2-btn" onclick="viewPeriod('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9" title="Show only Period 2 in the analysis view">View</button>
     </div>
-    <button class="export-btn" id="view-all-btn" onclick="viewAllData()" style="margin-top:4px;background:#f9fafb;border-color:#d1d5db;color:#374151;font-size:11px" title="Reset the view to show all loaded data">&#8635; View All Data</button>
+    <button class="export-btn" id="view-all-btn" onclick="viewAllData()" style="margin-top:4px;background:#f9fafb;border-color:#d1d5db;color:#374151;font-size:11px" title="Reset the view to show all loaded data">View All Data</button>
     <div id="set-period-msg" class="snap-msg" style="display:none"></div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled style="margin-top:6px">Analyze</button>
 
     <!-- Clock discrepancy row: main button + compact undo -->
     <div class="btn-row">
-      <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">&#9881;&#65039; Correct Clock Discrepancies</button>
+      <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">Apply Clock Fixes</button>
       <button class="btn-compact" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626" title="Undo all auto-corrections">↩ <span id="correction-count">0</span></button>
     </div>
 
     <!-- Export row: Snapshot (primary) + Excel (compact) -->
     <div class="btn-row">
-      <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:#f0fdf4;border-color:#86efac;color:#166534">&#128190; Export Snapshot</button>
+      <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:#f0fdf4;border-color:#86efac;color:#166534">Export Snapshot</button>
       <button class="btn-compact" id="export-btn" onclick="exportReport()" disabled title="Export to Excel">Excel</button>
     </div>
 
     <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
-    <button class="export-btn" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Pull live scheduler data for the selected date range">&#9889; Load Live Data</button>
+    <button class="export-btn" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
 
     <!-- Snapshot browser -->
-    <button class="export-btn snap-toggle" id="snap-toggle-btn" onclick="toggleSnapPanel()" style="margin-top:4px">&#128451; Snapshots</button>
+    <button class="export-btn snap-toggle" id="snap-toggle-btn" onclick="toggleSnapPanel()" style="margin-top:4px">Snapshots</button>
     <div class="snap-panel" id="snap-panel" style="display:none">
       <div class="snap-save-row">
         <input type="text" id="snap-name-input" placeholder="e.g. Spring 2026 Final" maxlength="80">
@@ -493,8 +498,8 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <!-- PDF row: single worker (with dropdown) + all workers -->
     <div style="position:relative;margin-top:4px" id="worker-pdf-wrapper">
       <div class="btn-row" style="margin-top:0">
-        <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="margin-top:0;background:#fefce8;border-color:#fde047;color:#854d0e">&#128196; Worker PDF</button>
-        <button class="btn-compact" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e" title="Export all worker reports as .zip">&#128230; All</button>
+        <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="margin-top:0;background:#fefce8;border-color:#fde047;color:#854d0e">Worker PDF</button>
+        <button class="btn-compact" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e" title="Export all worker reports as .zip">All</button>
       </div>
       <div id="worker-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;margin-top:2px">
         <div style="padding:6px 8px;border-bottom:1px solid #f3f4f6">
@@ -505,7 +510,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
         <div id="worker-dropdown-list" style="max-height:180px;overflow-y:auto"></div>
       </div>
     </div>
-    <button class="export-btn" id="github-push-btn" onclick="openGitHubPushModal()" disabled style="margin-top:4px;background:#f0fdf4;border-color:#86efac;color:#166534;font-size:11px">&#128640; Push to GitHub (Worker Portal)</button>
+    <button class="export-btn" id="github-push-btn" onclick="openGitHubPushModal()" disabled style="margin-top:4px;background:#f0fdf4;border-color:#86efac;color:#166534;font-size:11px">Publish Worker Portal</button>
     <details style="margin-top:8px">
       <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> Timezone &amp; Advanced
@@ -569,7 +574,9 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
         <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
       </div>
     </details>
-    <div class="info-box">
+    <details class="info-box">
+      <summary>Metric Notes</summary>
+      <div class="info-box-body">
       <strong>Absences</strong>
       Self-reported: reporter = employee<br>
       Staff-marked: reporter ≠ employee
@@ -581,13 +588,14 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       Left Open = canceled / denied / expired
       <strong>Penalty-Free Days</strong>
       Unworked shifts excluded from denominator. Clocked shifts still count as worked.
-    </div>
+      </div>
+    </details>
   </div>
   <div class="main" id="main">
     <div class="empty-state">
       <div class="big">📂</div>
-      <p>Upload your WhenIWork exports to begin</p>
-      <p class="sub">All processing stays in your browser — nothing is uploaded</p>
+      <p>Load live Studio Operations data or upload reports to begin</p>
+      <p class="sub">Local files stay in your browser</p>
     </div>
   </div>
 </div>
@@ -1059,7 +1067,7 @@ function _analyzeInner() {
   updateCorrectionCount();
   const correctBtn = document.getElementById('correct-btn');
   if (correctBtn) {
-    correctBtn.innerHTML = '&#9881;&#65039; Correct WhenIWork Clock Discrepancies';
+    correctBtn.innerHTML = 'Apply Clock Fixes';
     correctBtn.style.background = '#eff6ff';
     correctBtn.style.borderColor = '#93c5fd';
     correctBtn.style.color = '#1d4ed8';
@@ -3973,7 +3981,7 @@ function autoCorrectAfterTimesheetLoad() {
     // Show a subtle auto-applied banner on the correct button
     const btn = document.getElementById('correct-btn');
     if (btn) {
-      btn.innerHTML = '&#9881;&#65039; Clock Discrepancies Auto-Applied (' + count + ')';
+      btn.innerHTML = 'Clock Fixes Auto-Applied (' + count + ')';
       btn.style.background = '#dbeafe';
       btn.style.borderColor = '#60a5fa';
       btn.style.color = '#1e40af';
@@ -4071,7 +4079,7 @@ function correctDiscrepancies() {
     document.getElementById('undo-corrections-btn').style.display = '';
     const btn = document.getElementById('correct-btn');
     if (btn) {
-      btn.innerHTML = '&#9881;&#65039; Clock Discrepancies Corrected (' + state.autocorrections.size + ')';
+      btn.innerHTML = 'Clock Fixes Applied (' + state.autocorrections.size + ')';
       btn.style.background = '#dbeafe';
       btn.style.borderColor = '#60a5fa';
       btn.style.color = '#1e40af';
@@ -4116,7 +4124,7 @@ function undoAllCorrections() {
   document.getElementById('undo-corrections-btn').style.display = 'none';
   const btn = document.getElementById('correct-btn');
   if (btn) {
-    btn.innerHTML = '&#9881;&#65039; Correct WhenIWork Clock Discrepancies';
+    btn.innerHTML = 'Apply Clock Fixes';
     btn.style.background = '#eff6ff';
     btn.style.borderColor = '#93c5fd';
     btn.style.color = '#1d4ed8';
@@ -4691,7 +4699,7 @@ async function loadLiveData() {
   } catch (e) {
     liveMsg('Live load failed: ' + e.message, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = prevLabel || '&#9889; Load Live Data'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = prevLabel || 'Load Live Data'; }
   }
 }
 
@@ -4823,7 +4831,7 @@ async function setPeriodFromLive(period) {
   } catch (e) {
     setPeriodMsg('Set Period ' + period + ' failed: ' + e.message, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = prev || ('&#9889; Set Period ' + period); }
+    if (btn) { btn.disabled = false; btn.innerHTML = prev || ('Set Period ' + period); }
   }
 }
 
