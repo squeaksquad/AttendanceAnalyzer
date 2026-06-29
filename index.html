@@ -576,6 +576,38 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
         <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
       </div>
     </details>
+    <details id="excused-details" style="margin-top:8px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+        <span class="details-arrow">▶</span> Excused Absences
+        <span id="excused-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#cffafe;color:#0e7490;border-radius:3px;padding:1px 5px"></span>
+      </summary>
+      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+        Mark a worker's emergency/excused dates. Their missed shifts in this range — dropped or not, covered or not — won't count against attendance. Shifts <em>worked</em> still earn full credit. Synced to the studio's server, so it follows you to any computer and re-applies automatically to every upload.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Worker</div>
+          <input list="excused-worker-options" id="excused-worker-input" placeholder="Name" autocomplete="off" onfocus="populateExcusedWorkerOptions()" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <datalist id="excused-worker-options"></datalist>
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
+          <input type="date" id="excused-start-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="date" id="excused-end-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Note <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="text" id="excused-note-input" placeholder="e.g. family emergency" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+        </div>
+      </div>
+      <button onclick="addExcusedRange()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Excused Range</button>
+      <div id="excused-list" style="margin-top:6px">
+        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
+      </div>
+    </details>
     <details class="info-box">
       <summary>Metric Notes</summary>
       <div class="info-box-body">
@@ -647,6 +679,7 @@ const state = {
   }, // tracks collapsed sections and sort state for insight tables
   overrides: new Set(),        // shift keys manually marked as worked
   omissions: new Set(),        // shift keys omitted from counts + history
+  excused: [],                 // persisted per-worker excused ranges: [{nameKey,name,from,to,note}]
   autocorrections: new Set(),  // shift keys auto-corrected by discrepancy fixer
   strictDrops: true,           // if true, covered drops also count against attendance
   inferredClosures: new Set(), // auto-detected college-closed dates (YYYY-MM-DD)
@@ -2746,7 +2779,6 @@ function recomputeEmployee(nameKey) {
   if (!r) return;
   const d = state.detailMap[nameKey];
   if (!d) return;
-  const coveredPenalty2 = state.strictDrops ? r.covered : 0;
   const activeShifts = d.clockin.filter(s => !state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`));
 
   // Penalty-free days: unworked shifts don't count against attendance,
@@ -2760,9 +2792,21 @@ function recomputeEmployee(nameKey) {
     return `${m[3]}-${MONTHS_IDX2[m[1]]}-${String(m[2]).padStart(2,'0')}`;
   }
 
-  const penaltyShifts = activeShifts.filter(s => { const iso = shiftISO(s); return iso && pfdISO.has(iso) && !s.hasClock; });
+  // An unworked shift is excluded from scoring if its date is a global
+  // penalty-free day OR falls in one of this worker's persisted excused ranges.
+  const penaltyShifts = activeShifts.filter(s => {
+    if (s.hasClock) return false;
+    const iso = shiftISO(s);
+    return iso && (pfdISO.has(iso) || isExcusedISO(nameKey, iso));
+  });
   const penaltyShiftSet = new Set(penaltyShifts);
   const scoredShifts = activeShifts.filter(s => !penaltyShiftSet.has(s));
+
+  // Covered drops normally count against attendance (strictDrops). Excused
+  // covered drops do not — so an emergency isn't penalized whether or not the
+  // dropped shift got picked up.
+  const excusedCovered = countExcusedCoveredDrops(nameKey, d);
+  const coveredPenalty2 = state.strictDrops ? Math.max(0, r.covered - excusedCovered) : 0;
 
   r.total_assigned = scoredShifts.length + (r.picked_up || 0) + coveredPenalty2;
   r.worked       = scoredShifts.filter(s => s.hasClock).length + r.picked_up;
@@ -2924,6 +2968,7 @@ function buildAttDetail(key,r) {
       btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
     }
     const pfdBadge = isPenaltyFree ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
+    const excBadge = !s.hasClock && isExcused(key, s.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
     const omitBtn = `<button class="omit-btn${isOmitted?' omitted':''}" title="${isOmitted?'Restore shift to counts':'Omit shift from counts'}" onclick="event.stopPropagation();omitShift('${oKey.replace(/'/g,"\\'")}','${key}')">${isOmitted?'↩ Restore':'✕ Omit'}</button>`;
     const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
     // Lateness info — only when timesheet data available
@@ -2937,16 +2982,17 @@ function buildAttDetail(key,r) {
                + `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;background:${lateBg};color:${lateColor}">${lateInfo.label}</span>`;
     }
     return `<div class="detail-item${hasAbsence&&!isOmitted?' has-absence':''}${isOmitted?' omitted-shift':''}">
-      <div class="di-date">${esc(s.date)} ${badge}${pfdBadge}${btn}${omitBtn}${absBadge}${lateHtml}</div>
+      <div class="di-date">${esc(s.date)} ${badge}${pfdBadge}${excBadge}${btn}${omitBtn}${absBadge}${lateHtml}</div>
       <div class="di-meta">${[s.time,s.length,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.notes?`<div class="di-note">${esc(s.notes)}</div>`:''}
     </div>`;
   }).join('');
   const absHtml=!absences.length?'<p class="detail-empty">No absences recorded</p>':absences.map(a=>{
     const absPfd = isPFD(a.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
+    const absExc = isExcused(key, a.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
     return `
     <div class="detail-item">
-      <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span>${absPfd}</div>
+      <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span>${absPfd}${absExc}</div>
       <div class="di-meta">${[a.time,a.site,a.position].filter(Boolean).map(esc).join(' · ')}${a.action&&a.action!=='None'?' · '+esc(a.action):''}</div>
       ${!a.isSelf?`<div class="di-meta">Reported by: <strong>${esc(a.reporter)}</strong></div>`:''}
       ${a.reportedAt?`<div class="di-meta">Reported: <strong>${esc(fmtTimestamp(a.reportedAt))}</strong>${a.notice?` · ${esc(a.notice)} notice`:''}</div>`:(a.notice?`<div class="di-meta">${esc(a.notice)} notice</div>`:'')}
@@ -2956,13 +3002,14 @@ function buildAttDetail(key,r) {
   const shiftHtml=!shifts.length?'<p class="detail-empty">No shift requests</p>':shifts.map(s=>{
     const [bcls,btxt]=s.type==='pickup'?['filled','Covered for Others']:s.type==='swap'?['swap','Swap']:['drop','Drop'];
     const dropPfd = s.type !== 'pickup' && isPFD(s.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
+    const dropExc = s.type !== 'pickup' && isExcused(key, s.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
     const tsParts = [
       s.createdAt  ? `Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>` : '',
       s.acceptedAt ? `Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>` : '',
       s.decidedAt  ? `Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>` : '',
     ].filter(Boolean);
     return `<div class="detail-item">
-      <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${dropPfd}${s.status?' · '+esc(s.status):''}</div>
+      <div class="di-date">${esc(s.date)} <span class="di-badge ${bcls}">${btxt}</span>${dropPfd}${dropExc}${s.status?' · '+esc(s.status):''}</div>
       <div class="di-meta">${[s.time,s.site,s.position].filter(Boolean).map(esc).join(' · ')}</div>
       ${s.acceptedBy?`<div class="di-meta">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
       ${s.coveredFor?`<div class="di-meta">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
@@ -4244,6 +4291,162 @@ function removeManualClosure(dateStr) {
 }
 
 
+// ── Excused Absences (per-worker, persisted across uploads) ───────────────────
+// Stored in localStorage keyed by normalized worker name so they re-apply to
+// every future upload automatically. During an excused range, a worker's missed
+// shifts — dropped or not, covered or not — are excluded from their attendance
+// score, while worked shifts still earn credit.
+const EXCUSED_KEY = 'analyzerExcusedAbsences';
+
+function loadExcused() {
+  try {
+    const raw = localStorage.getItem(EXCUSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    state.excused = Array.isArray(parsed) ? parsed : [];
+  } catch { state.excused = []; }
+}
+function saveExcused() {
+  try { localStorage.setItem(EXCUSED_KEY, JSON.stringify(state.excused)); } catch (e) {}
+}
+
+// ── Cross-device sync ─────────────────────────────────────────────────────────
+// Excused ranges live in the private studio-worker-data repo (excused.json) so
+// they follow the manager to any computer. localStorage is just a fast local
+// cache/offline fallback. PUSH_WORKER_URL / PUSH_SECRET are defined further down
+// (these run on DOMContentLoaded / user actions, after the whole script loads).
+function saveExcusedToServer() {
+  if (typeof PUSH_WORKER_URL === 'undefined' || !PUSH_WORKER_URL) return;
+  fetch(PUSH_WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Push-Secret': PUSH_SECRET },
+    body: JSON.stringify({ files: [{
+      path: 'excused.json',
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(state.excused, null, 2) + '\n'))),
+      message: 'Update excused absences'
+    }] })
+  }).catch(e => console.warn('Excused server save failed (kept locally):', e));
+}
+
+async function loadExcusedFromServer() {
+  if (typeof PUSH_WORKER_URL === 'undefined' || !PUSH_WORKER_URL) return;
+  try {
+    const res = await fetch(PUSH_WORKER_URL + '/excused', { headers: { 'X-Push-Secret': PUSH_SECRET } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const serverList = Array.isArray(data.excused) ? data.excused : [];
+    // Server empty but this browser has entries → seed the server (first migration).
+    if (serverList.length === 0 && state.excused.length > 0) { saveExcusedToServer(); return; }
+    state.excused = serverList;
+    saveExcused();
+    renderExcusedSidebar();
+    if (state.results) _rebuildAfterPFDChange();
+  } catch (e) { /* offline → keep the localStorage copy */ }
+}
+
+// "Jun 18, 2026" → "2026-06-18"
+const _MONTHS_EXC = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+function excDateToISO(dateStr) {
+  const m = dateStr && dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+  if (!m || !_MONTHS_EXC[m[1]]) return null;
+  return `${m[3]}-${_MONTHS_EXC[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+}
+function isExcusedISO(nameKey, iso) {
+  if (!iso || !state.excused.length) return false;
+  for (const e of state.excused) {
+    if (e.nameKey === nameKey && iso >= e.from && iso <= e.to) return true;
+  }
+  return false;
+}
+function isExcused(nameKey, dateStr) {
+  return isExcusedISO(nameKey, excDateToISO(dateStr));
+}
+// Count this worker's covered drops that fall inside an excused range, so they
+// can be removed from the covered-drop penalty in recomputeEmployee().
+function countExcusedCoveredDrops(nameKey, d) {
+  if (!d || !d.shifts || !state.excused.length) return 0;
+  const coveredStatuses = new Set(['accepted', 'approved']);
+  return d.shifts.filter(s =>
+    (s.type === 'drop' || s.type === 'swap') &&
+    s.acceptedBy && coveredStatuses.has((s.status || '').toLowerCase()) &&
+    isExcused(nameKey, s.date)
+  ).length;
+}
+
+function _isoShort(iso) {
+  const m = iso && iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso || '';
+  return `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
+}
+
+function addExcusedRange() {
+  const nameInput  = document.getElementById('excused-worker-input');
+  const startInput = document.getElementById('excused-start-input');
+  const endInput   = document.getElementById('excused-end-input');
+  const noteInput  = document.getElementById('excused-note-input');
+  const name = (nameInput && nameInput.value || '').trim();
+  if (!name) { alert('Enter a worker name.'); return; }
+  if (!startInput || !startInput.value) { alert('Pick a start date.'); return; }
+  const from = startInput.value;
+  const to   = endInput && endInput.value ? endInput.value : from;
+  if (to < from) { alert('End date must be on or after start date.'); return; }
+
+  state.excused.push({ nameKey: normName(name), name, from, to, note: (noteInput && noteInput.value || '').trim() });
+  saveExcused();
+  saveExcusedToServer();
+  nameInput.value = ''; startInput.value = '';
+  if (endInput) endInput.value = '';
+  if (noteInput) noteInput.value = '';
+  renderExcusedSidebar();
+  _rebuildAfterPFDChange();
+}
+
+function removeExcusedRange(idx) {
+  state.excused.splice(idx, 1);
+  saveExcused();
+  saveExcusedToServer();
+  renderExcusedSidebar();
+  _rebuildAfterPFDChange();
+}
+
+// Fill the worker-name autocomplete from currently-loaded people.
+function populateExcusedWorkerOptions() {
+  const dl = document.getElementById('excused-worker-options');
+  if (!dl) return;
+  const names = new Set();
+  if (state.results) for (const r of state.results) names.add(r.name);
+  if (state.userMap) for (const u of Object.values(state.userMap)) if (u && u.name) names.add(u.name);
+  dl.innerHTML = [...names].sort().map(n => `<option value="${esc(n)}"></option>`).join('');
+}
+
+function renderExcusedSidebar() {
+  const badge  = document.getElementById('excused-count-badge');
+  const listEl = document.getElementById('excused-list');
+  const n = state.excused.length;
+  if (badge) {
+    badge.textContent = n + (n === 1 ? ' entry' : ' entries');
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+  if (!listEl) return;
+  if (n === 0) {
+    listEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+    return;
+  }
+  const items = state.excused
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => a.e.name.localeCompare(b.e.name) || a.e.from.localeCompare(b.e.from));
+  listEl.innerHTML = items.map(({ e, i }) => {
+    const range = e.from === e.to ? _isoShort(e.from) : `${_isoShort(e.from)} – ${_isoShort(e.to)}`;
+    const note  = e.note ? `<div style="font-size:10px;color:#9ca3af;font-style:italic">${esc(e.note)}</div>` : '';
+    return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:1px solid #f3f4f6">
+      <div style="min-width:0">
+        <div style="font-size:11px;font-weight:600;color:#374151">${esc(e.name)}</div>
+        <div style="font-size:10px;color:#6b7280">${range}</div>${note}
+      </div>
+      <button onclick="removeExcusedRange(${i})" title="Remove" style="flex-shrink:0;border:none;background:none;color:#9ca3af;cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
+    </div>`;
+  }).join('');
+}
+
 // ── Penalty-Free Days ─────────────────────────────────────────────────────────
 function addPenaltyFreeDay() {
   const startInput = document.getElementById('pfd-start-input');
@@ -4458,7 +4661,7 @@ document.documentElement.style.scrollPaddingTop = totalFixed + 'px';
 window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
-document.addEventListener('DOMContentLoaded', () => { renderPenaltyFreeSidebar(); restoreUploadSectionState(); applyLiveDateLimits(); prefillPeriodsFromSemester(); });
+document.addEventListener('DOMContentLoaded', () => { loadExcused(); renderExcusedSidebar(); loadExcusedFromServer(); renderPenaltyFreeSidebar(); restoreUploadSectionState(); applyLiveDateLimits(); prefillPeriodsFromSemester(); });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
 const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
@@ -4505,6 +4708,7 @@ function buildSnapshotData() {
     manualClosures:  [...state.manualClosures],
     overrides:       [...state.overrides],
     penaltyFreeDays: [...state.penaltyFreeDays],
+    excused: [...state.excused],
     activeMode: state.mode || 'attendance',
     clockOverrides: (() => {
       const out = [];
@@ -5187,6 +5391,10 @@ function exportSnapshot() {
       state.penaltyFreeDays = new Set(d.penaltyFreeDays);
       if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
     }
+    if (d.excused && d.excused.length) {
+      state.excused = d.excused;
+      if (typeof renderExcusedSidebar === 'function') renderExcusedSidebar();
+    }
     // Restore manual clock-in overrides — applied after analyze() re-derives state
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
     // clockOverrides: flat set of "nameKey|date|time" for all hasClock=true shifts
@@ -5641,6 +5849,7 @@ function generateFullManagerSnapshot(periodTag) {
     manualClosures: [...state.manualClosures],
     overrides: [...state.overrides],
     penaltyFreeDays: [...state.penaltyFreeDays],
+    excused: [...state.excused],
     activeMode: state.mode || 'attendance',
     clockOverrides: (() => {
       const out = [];
@@ -5674,6 +5883,10 @@ function generateFullManagerSnapshot(periodTag) {
     if (d.penaltyFreeDays && d.penaltyFreeDays.length) {
       state.penaltyFreeDays = new Set(d.penaltyFreeDays);
       if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
+    }
+    if (d.excused && d.excused.length) {
+      state.excused = d.excused;
+      if (typeof renderExcusedSidebar === 'function') renderExcusedSidebar();
     }
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
     var clockOverrideSet = new Set(d.clockOverrides || []);
