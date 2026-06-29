@@ -937,6 +937,20 @@ function parseUniversal(val) {
         return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
     }
 
+    // 4b. Bare ISO date "YYYY-MM-DD" with no time component — e.g. WhenIWork's
+    // "Shift Start Date" column. Parse the calendar parts directly and mark it
+    // date-only. Without this it falls to the fallback below, where
+    // new Date("2026-06-18") is read as UTC midnight and then formatted with
+    // local getters — rolling the day back one in western zones (EDT/EST turns
+    // 2026-06-18 into 2026-06-17). Mirrors the M/D/Y and "Mon DD, YYYY" cases.
+    const isoDate = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoDate) {
+        y  = parseInt(isoDate[1], 10);
+        mo = parseInt(isoDate[2], 10) - 1;
+        d  = parseInt(isoDate[3], 10);
+        return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
+    }
+
     // 5. "Mon DD, YYYY" string (e.g. "Mar 26, 2026" from Absences export)
     // Must be handled before the fallback: new Date("Mar 26, 2026") parses as
     // UTC midnight, and applyOffset() would shift it back a day in EDT/EST,
