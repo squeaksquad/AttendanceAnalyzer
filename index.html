@@ -2752,6 +2752,14 @@ function markWorked(shiftKey, nameKey) {
   recomputeEmployee(nameKey);
   renderAttRows();
   refreshAttStats();
+
+  // shiftKey is "nameKey|date|time" — persist the toggle to D1.
+  const [k, date, time] = shiftKey.split('|');
+  const payload = { nameKey: k, date, time };
+  const call = already
+    ? analyzerApiCall('DELETE', '/edits/overrides', payload)
+    : analyzerApiCall('POST', '/edits/overrides', payload);
+  call.catch(e => console.warn('Override save failed (kept locally):', e));
 }
 
 // ── Shift omissions (exclude from counts + history) ───────────────────────────
@@ -4285,66 +4293,24 @@ function addManualClosure() {
   input.value = '';
   state.closuresDirty = true;
   renderClosuresSidebar();
+  analyzerApiCall('POST', '/edits/closures', { date: val }).catch(e => console.warn('Closure save failed (kept locally):', e));
 }
 
 function removeManualClosure(dateStr) {
   state.manualClosures.delete(dateStr);
   state.closuresDirty = true;
   renderClosuresSidebar();
+  analyzerApiCall('DELETE', `/edits/closures/${encodeURIComponent(dateStr)}`).catch(e => console.warn('Closure delete failed (kept removed locally):', e));
 }
 
 
 // ── Excused Absences (per-worker, persisted across uploads) ───────────────────
-// Stored in localStorage keyed by normalized worker name so they re-apply to
-// every future upload automatically. During an excused range, a worker's missed
-// shifts — dropped or not, covered or not — are excluded from their attendance
-// score, while worked shifts still earn credit.
-const EXCUSED_KEY = 'analyzerExcusedAbsences';
-
-function loadExcused() {
-  try {
-    const raw = localStorage.getItem(EXCUSED_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    state.excused = Array.isArray(parsed) ? parsed : [];
-  } catch { state.excused = []; }
-}
-function saveExcused() {
-  try { localStorage.setItem(EXCUSED_KEY, JSON.stringify(state.excused)); } catch (e) {}
-}
-
-// ── Cross-device sync ─────────────────────────────────────────────────────────
-// Excused ranges live in the private studio-worker-data repo (excused.json) so
-// they follow the manager to any computer. localStorage is just a fast local
-// cache/offline fallback. PUSH_WORKER_URL / PUSH_SECRET are defined further down
-// (these run on DOMContentLoaded / user actions, after the whole script loads).
-function saveExcusedToServer() {
-  if (typeof PUSH_WORKER_URL === 'undefined' || !PUSH_WORKER_URL) return;
-  fetch(PUSH_WORKER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Push-Secret': PUSH_SECRET },
-    body: JSON.stringify({ files: [{
-      path: 'excused.json',
-      content: btoa(unescape(encodeURIComponent(JSON.stringify(state.excused, null, 2) + '\n'))),
-      message: 'Update excused absences'
-    }] })
-  }).catch(e => console.warn('Excused server save failed (kept locally):', e));
-}
-
-async function loadExcusedFromServer() {
-  if (typeof PUSH_WORKER_URL === 'undefined' || !PUSH_WORKER_URL) return;
-  try {
-    const res = await fetch(PUSH_WORKER_URL + '/excused', { headers: { 'X-Push-Secret': PUSH_SECRET } });
-    if (!res.ok) return;
-    const data = await res.json();
-    const serverList = Array.isArray(data.excused) ? data.excused : [];
-    // Server empty but this browser has entries → seed the server (first migration).
-    if (serverList.length === 0 && state.excused.length > 0) { saveExcusedToServer(); return; }
-    state.excused = serverList;
-    saveExcused();
-    renderExcusedSidebar();
-    if (state.results) _rebuildAfterPFDChange();
-  } catch (e) { /* offline → keep the localStorage copy */ }
-}
+// Persisted in the scheduler's D1 database (see analyzerApiCall / /edits/excused)
+// so they follow the manager to any computer and any device. During an excused
+// range, a worker's missed shifts — dropped or not, covered or not — are excluded
+// from their attendance score, while worked shifts still earn credit. Populated
+// from the /live payload's `excused` array (see restoreSnapshotData); there is no
+// local-only fallback, so this list is empty until a live pull has happened.
 
 // "Jun 18, 2026" → "2026-06-18"
 const _MONTHS_EXC = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
@@ -4381,7 +4347,7 @@ function _isoShort(iso) {
   return `${MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
 }
 
-function addExcusedRange() {
+async function addExcusedRange() {
   const nameInput  = document.getElementById('excused-worker-input');
   const startInput = document.getElementById('excused-start-input');
   const endInput   = document.getElementById('excused-end-input');
@@ -4393,9 +4359,18 @@ function addExcusedRange() {
   const to   = endInput && endInput.value ? endInput.value : from;
   if (to < from) { alert('End date must be on or after start date.'); return; }
 
-  state.excused.push({ nameKey: normName(name), name, from, to, note: (noteInput && noteInput.value || '').trim() });
-  saveExcused();
-  saveExcusedToServer();
+  const nameKey = normName(name);
+  const note = (noteInput && noteInput.value || '').trim();
+  const entry = { nameKey, name, from, to, note };
+  try {
+    const res = await analyzerApiCall('POST', '/edits/excused', entry);
+    entry.id = res.id;
+  } catch (e) {
+    console.warn('Excused save failed:', e);
+    alert('Could not save — you may need to sign in again. Not added.');
+    return;
+  }
+  state.excused.push(entry);
   nameInput.value = ''; startInput.value = '';
   if (endInput) endInput.value = '';
   if (noteInput) noteInput.value = '';
@@ -4403,12 +4378,16 @@ function addExcusedRange() {
   _rebuildAfterPFDChange();
 }
 
-function removeExcusedRange(idx) {
+async function removeExcusedRange(idx) {
+  const entry = state.excused[idx];
+  if (!entry) return;
   state.excused.splice(idx, 1);
-  saveExcused();
-  saveExcusedToServer();
   renderExcusedSidebar();
   _rebuildAfterPFDChange();
+  if (entry.id != null) {
+    try { await analyzerApiCall('DELETE', `/edits/excused/${entry.id}`); }
+    catch (e) { console.warn('Excused delete failed (removed locally only):', e); }
+  }
 }
 
 // Fill the worker-name autocomplete from currently-loaded people.
@@ -4460,35 +4439,42 @@ function addPenaltyFreeDay() {
   if (endVal < startVal) { alert('End date must be on or after start date.'); return; }
 
   // Expand range into individual days
+  const dates = [];
   let cur = new Date(startVal + 'T12:00:00Z');
   const end = new Date(endVal + 'T12:00:00Z');
   while (cur <= end) {
-    state.penaltyFreeDays.add(cur.toISOString().slice(0, 10));
+    dates.push(cur.toISOString().slice(0, 10));
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
+  for (const d of dates) state.penaltyFreeDays.add(d);
 
   startInput.value = '';
   if (endInput) endInput.value = '';
   renderPenaltyFreeSidebar();
   _rebuildAfterPFDChange();
+  analyzerApiCall('POST', '/edits/penalty-free-days', { dates }).catch(e => console.warn('Penalty-free save failed (kept locally):', e));
 }
 
 function removePenaltyFreeDay(dateStr) {
   state.penaltyFreeDays.delete(dateStr);
   renderPenaltyFreeSidebar();
   _rebuildAfterPFDChange();
+  analyzerApiCall('DELETE', '/edits/penalty-free-days', { dates: [dateStr] }).catch(e => console.warn('Penalty-free delete failed (kept removed locally):', e));
 }
 
 // Remove an entire contiguous run of dates (as shown in the grouped list)
 function removePenaltyFreeRange(startISO, endISO) {
+  const dates = [];
   let cur = new Date(startISO + 'T12:00:00Z');
   const end = new Date(endISO + 'T12:00:00Z');
   while (cur <= end) {
-    state.penaltyFreeDays.delete(cur.toISOString().slice(0, 10));
+    dates.push(cur.toISOString().slice(0, 10));
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
+  for (const d of dates) state.penaltyFreeDays.delete(d);
   renderPenaltyFreeSidebar();
   _rebuildAfterPFDChange();
+  analyzerApiCall('DELETE', '/edits/penalty-free-days', { dates }).catch(e => console.warn('Penalty-free delete failed (kept removed locally):', e));
 }
 
 function _rebuildAfterPFDChange() {
@@ -4664,7 +4650,13 @@ document.documentElement.style.scrollPaddingTop = totalFixed + 'px';
 window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
-document.addEventListener('DOMContentLoaded', () => { loadExcused(); renderExcusedSidebar(); loadExcusedFromServer(); renderPenaltyFreeSidebar(); restoreUploadSectionState(); applyLiveDateLimits(); prefillPeriodsFromSemester(); });
+document.addEventListener('DOMContentLoaded', () => {
+  renderExcusedSidebar(); renderPenaltyFreeSidebar(); restoreUploadSectionState();
+  applyLiveDateLimits(); prefillPeriodsFromSemester();
+  // embed=1 (set by the Assistant Scheduler's embedded card) auto-pulls live data
+  // on open; a direct visit to analyzer.bryandimaio.com stays upload-first.
+  if (new URLSearchParams(location.search).get('embed') === '1') loadLiveData();
+});
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
 const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
@@ -5212,13 +5204,17 @@ function restoreSnapshotData(d) {
     }
   }
 
-  // ── 2. Restore closures & penalty-free days ──
+  // ── 2. Restore closures, penalty-free days & excused ranges ──
   if (d.manualClosures && d.manualClosures.length) {
     state.manualClosures = new Set(d.manualClosures);
   }
   if (d.penaltyFreeDays && d.penaltyFreeDays.length) {
     state.penaltyFreeDays = new Set(d.penaltyFreeDays);
     if (typeof renderPenaltyFreeSidebar === 'function') renderPenaltyFreeSidebar();
+  }
+  if (d.excused) {
+    state.excused = d.excused;
+    if (typeof renderExcusedSidebar === 'function') renderExcusedSidebar();
   }
 
   const pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
