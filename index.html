@@ -13,91 +13,268 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  color-scheme: light dark;
+  --bg: #f0f0ee;
+  --surface: #fff;
+  --surface-2: #fbfbfa;
+  --surface-hover: #f9fafb;
+  --surface-hover-2: #f3f4f6;
+  --row-hover: #f8f8f6;
+  --row-open: #f0f5ff;
+  --row-flagged: #fff5f5;
+  --row-flagged-hover: #fee2e2;
+  --panel-attendance: #f4f6fb;
+  --panel-prep: #f8f5ff;
+  --panel-close: #f0f9ff;
+  --snap-panel: #fafaf9;
+
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --border-soft: #dfe4ec;
+
+  --text-strong: #111;
+  --text: #374151;
+  --text-muted: #6b7280;
+  --text-faint: #9ca3af;
+
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-soft: #3b82f6;
+  --accent-bg: #eff6ff;
+  --accent-disabled-bg: #bfdbfe;
+  --accent-disabled-fg: #93c5fd;
+
+  --success-bg: #dcfce7;
+  --success-bg-soft: #f0fdf4;
+  --success-fg: #16a34a;
+  --success-fg-strong: #15803d;
+  --success-fg-deep: #166534;
+  --success-border: #86efac;
+  --success-solid: #22c55e;
+
+  --warn-bg: #fef3c7;
+  --warn-bg-soft: #fffbeb;
+  --warn-fg: #92400e;
+  --warn-fg-strong: #b45309;
+  --warn-border: #f59e0b;
+  --warn-solid: #d97706;
+
+  --danger-bg: #fee2e2;
+  --danger-bg-soft: #fef2f2;
+  --danger-fg: #dc2626;
+  --danger-fg-strong: #b91c1c;
+  --danger-border: #fca5a5;
+  --danger-solid: #ef4444;
+
+  --purple-bg: #ede9fe;
+  --purple-bg-soft: #f8f5ff;
+  --purple-fg: #6d28d9;
+  --purple-fg-deep: #5b21b6;
+  --purple-border: #ddd6fe;
+  --purple-solid: #7c3aed;
+
+  --sky-bg: #f0f9ff;
+  --sky-fg: #0369a1;
+  --sky-border: #bae6fd;
+
+  --indigo-bg: #e0e7ff;
+  --indigo-fg: #3730a3;
+
+  --info-bg: #dbeafe;
+
+  --green-muted-fg: #4a8f5e;
+  --green-muted-border: #c6e0ce;
+
+  --pfd-bg: #fef9c3;
+  --pfd-fg: #854d0e;
+  --pfd-border: #fde047;
+
+  --cyan-bg: #cffafe;
+  --cyan-fg: #0e7490;
+
+  --orange-bg: #fff7ed;
+  --orange-border: #fdba74;
+  --orange-solid: #f97316;
+  --orange-fg: #9a3412;
+
+  --tooltip-bg: #1f2937;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --surface: #232427;
+    --surface-2: #1c1d20;
+    --surface-hover: #2a2b2f;
+    --surface-hover-2: #303136;
+    --row-hover: #2a2b2e;
+    --row-open: #1e2a42;
+    --row-flagged: #3a1f1f;
+    --row-flagged-hover: #4a2424;
+    --panel-attendance: #1c2028;
+    --panel-prep: #211c2c;
+    --panel-close: #17232c;
+    --snap-panel: #202123;
+
+    --border: #35363a;
+    --border-strong: #46484d;
+    --border-soft: #34383e;
+
+    --text-strong: #f3f4f5;
+    --text: #d1d3d6;
+    --text-muted: #9aa0a8;
+    --text-faint: #767c85;
+
+    --accent: #5b8ff0;
+    --accent-hover: #7ea5f4;
+    --accent-soft: #5b9bf5;
+    --accent-bg: #1a2740;
+    --accent-disabled-bg: #253453;
+    --accent-disabled-fg: #4a5a7a;
+
+    --success-bg: #16321f;
+    --success-bg-soft: #122b19;
+    --success-fg: #4ade80;
+    --success-fg-strong: #34d399;
+    --success-fg-deep: #1f9d52;
+    --success-border: #227a44;
+    --success-solid: #22c55e;
+
+    --warn-bg: #3a2a0d;
+    --warn-bg-soft: #2e2410;
+    --warn-fg: #fbbf24;
+    --warn-fg-strong: #f0a020;
+    --warn-border: #a1660a;
+    --warn-solid: #f0a020;
+
+    --danger-bg: #3c1717;
+    --danger-bg-soft: #331414;
+    --danger-fg: #f87171;
+    --danger-fg-strong: #ef4444;
+    --danger-border: #7f2b2b;
+    --danger-solid: #f87171;
+
+    --purple-bg: #2a2140;
+    --purple-bg-soft: #251d3a;
+    --purple-fg: #b794f6;
+    --purple-fg-deep: #c4b5fd;
+    --purple-border: #5b4b8a;
+    --purple-solid: #8b5cf6;
+
+    --sky-bg: #10222c;
+    --sky-fg: #38bdf8;
+    --sky-border: #0e5a78;
+
+    --indigo-bg: #262a4a;
+    --indigo-fg: #a5adf7;
+
+    --info-bg: #1e3a5f;
+
+    --green-muted-fg: #7fbb92;
+    --green-muted-border: #2e4a37;
+
+    --pfd-bg: #3a3510;
+    --pfd-fg: #e8d873;
+    --pfd-border: #8a7a1a;
+
+    --cyan-bg: #113a42;
+    --cyan-fg: #22d3ee;
+
+    --orange-bg: #3a2410;
+    --orange-border: #8a4a1a;
+    --orange-solid: #fb923c;
+    --orange-fg: #fdba74;
+
+    --tooltip-bg: #0d0f12;
+  }
+}
+
 html, body { min-width: 900px; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: #f0f0ee; color: #1a1a1a; min-height: 100vh; padding-top: var(--header-h, 45px); }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: var(--bg); color: var(--text-strong); min-height: 100vh; padding-top: var(--header-h, 45px); }
 
 /* ── Header ── */
-header { background: #fff; border-bottom: 1px solid #ddd; padding: 12px 20px; display: flex; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; z-index: 20; }
-header h1 { font-size: 15px; font-weight: 700; color: #111; }
-header span { font-size: 12px; color: #6b7280; font-weight: 600; }
-.date-range-pill { font-size: 11px; font-weight: 600; color: #4b5563; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 4px; padding: 3px 9px; display: none; white-space: nowrap; }
+header { background: var(--surface); border-bottom: 1px solid var(--border-strong); padding: 12px 20px; display: flex; align-items: center; gap: 12px; width: 100%; position: fixed; top: 0; left: 0; z-index: 20; }
+header h1 { font-size: 15px; font-weight: 700; color: var(--text-strong); }
+header span { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.date-range-pill { font-size: 11px; font-weight: 600; color: var(--text); background: var(--surface-hover-2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 9px; display: none; white-space: nowrap; }
 .date-range-pill.visible { display: inline-block; }
 
 /* ── Folder picker button ── */
-.folder-btn { position: relative; width: 100%; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 7px 10px; font-size: 12px; font-weight: 600; color: #374151; cursor: pointer; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; transition: all .15s; }
-.folder-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.folder-btn { position: relative; width: 100%; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; padding: 7px 10px; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; transition: all .15s; }
+.folder-btn:hover { border-color: var(--accent); color: var(--accent); }
 .folder-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
 .folder-btn .folder-label { display: flex; align-items: center; gap: 7px; }
-.folder-btn .folder-status { font-size: 10px; font-weight: 400; color: #9ca3af; }
-.folder-btn.loaded .folder-status { color: #16a34a; }
+.folder-btn .folder-status { font-size: 10px; font-weight: 400; color: var(--text-faint); }
+.folder-btn.loaded .folder-status { color: var(--success-fg); }
 
 /* ── Multi-drop overlay ── */
-.drop-overlay { position: fixed; inset: 0; background: rgba(29,78,216,.08); border: 3px dashed #3b82f6; border-radius: 0; z-index: 1000; display: none; align-items: center; justify-content: center; pointer-events: none; }
+.drop-overlay { position: fixed; inset: 0; background: rgba(29,78,216,.08); border: 3px dashed var(--accent-soft); border-radius: 0; z-index: 1000; display: none; align-items: center; justify-content: center; pointer-events: none; }
 .drop-overlay.active { display: flex; }
-.drop-overlay-inner { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 28px 40px; text-align: center; }
-.drop-overlay-inner p { font-size: 15px; font-weight: 700; color: #1d4ed8; margin-bottom: 4px; }
-.drop-overlay-inner small { font-size: 12px; color: #6b7280; }
+.drop-overlay-inner { background: var(--surface); border: 1px solid var(--accent-disabled-bg); border-radius: 8px; padding: 28px 40px; text-align: center; }
+.drop-overlay-inner p { font-size: 15px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+.drop-overlay-inner small { font-size: 12px; color: var(--text-muted); }
 
 /* ── Mode tabs ── */
-.mode-tabs { display: flex; gap: 0; border: 1px solid #d1d5db; border-radius: 5px; overflow: hidden; margin-left: auto; }
-.mode-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; background: #fff; color: #555; border: none; border-right: 1px solid #d1d5db; transition: all .15s; }
+.mode-tabs { display: flex; gap: 0; border: 1px solid var(--border-strong); border-radius: 5px; overflow: hidden; margin-left: auto; }
+.mode-tab { padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; background: var(--surface); color: var(--text-muted); border: none; border-right: 1px solid var(--border-strong); transition: all .15s; }
 .mode-tab:last-child { border-right: none; }
-.mode-tab:hover { background: #f3f4f6; color: #111; }
-.mode-tab.active { background: #1d4ed8; color: #fff; }
+.mode-tab:hover { background: var(--surface-hover-2); color: var(--text-strong); }
+.mode-tab.active { background: var(--accent); color: #fff; }
 
 /* ── Layout ── */
 .workspace { display: block; margin-left: 260px; min-height: calc(100vh - var(--header-h, 45px)); min-width: 640px; transition: margin-left .18s ease; }
 
 /* ── Sidebar ── */
-.sidebar { background: #fbfbfa; border-right: 1px solid #d9dde3; padding: 14px; display: flex; flex-direction: column; gap: 6px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 16; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; transition: transform .18s ease; }
-.sidebar-label { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #6b7280; margin-top: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.sidebar { background: var(--surface-2); border-right: 1px solid var(--border); padding: 14px; display: flex; flex-direction: column; gap: 6px; position: fixed; top: var(--header-h, 45px); left: 0; z-index: 16; width: 260px; height: calc(100vh - var(--header-h, 45px)); overflow-y: auto; box-sizing: border-box; transition: transform .18s ease; }
+.sidebar-label { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); margin-top: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .sidebar-label:first-child { margin-top: 0; }
 .sidebar-label.collapsible { cursor: pointer; display: flex; align-items: center; gap: 5px; user-select: none; }
-.sidebar-label.collapsible:hover { color: #6b7280; }
-.sidebar-label .caret { display: inline-block; transition: transform .15s; font-size: 9px; color: #bbb; }
+.sidebar-label.collapsible:hover { color: var(--text-muted); }
+.sidebar-label .caret { display: inline-block; transition: transform .15s; font-size: 9px; color: var(--text-faint); }
 .sidebar-label.collapsed .caret { transform: rotate(-90deg); }
 .collapsible-body.collapsed { display: none; }
-.period-header { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #fff; background: #6b7280; border-radius: 5px; padding: 3px 7px; margin: 6px 0 1px; display: inline-flex; align-items: center; gap: 4px; }
-.period-header.p1 { background: #1d4ed8; }
-.period-header.p2 { background: #7c3aed; }
-.upload-zone { border: 1px solid #dfe4ec; border-radius: 7px; padding: 7px 9px; cursor: pointer; transition: all .15s; position: relative; background: #fff; display: flex; align-items: center; gap: 7px; margin-left: 0; min-height: 36px; }
-.upload-zone:hover, .upload-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
-.upload-zone.loaded { border-color: #22c55e; background: #f0fdf4; }
-.upload-zone.error  { border-color: #ef4444; background: #fef2f2; }
+.period-header { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #fff; background: var(--text-muted); border-radius: 5px; padding: 3px 7px; margin: 6px 0 1px; display: inline-flex; align-items: center; gap: 4px; }
+.period-header.p1 { background: var(--accent); }
+.period-header.p2 { background: var(--purple-solid); }
+.upload-zone { border: 1px solid var(--border-soft); border-radius: 7px; padding: 7px 9px; cursor: pointer; transition: all .15s; position: relative; background: var(--surface); display: flex; align-items: center; gap: 7px; margin-left: 0; min-height: 36px; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent-soft); background: var(--accent-bg); }
+.upload-zone.loaded { border-color: var(--success-solid); background: var(--success-bg-soft); }
+.upload-zone.error  { border-color: var(--danger-solid); background: var(--danger-bg-soft); }
 .upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-.zone-title { font-size: 10px; font-weight: 500; color: #6b7280; }
+.zone-title { font-size: 10px; font-weight: 500; color: var(--text-muted); }
 .zone-sub   { display: none; }
 .zone-status { font-size: 10px; margin-left: auto; white-space: nowrap; }
-.zone-status.ok  { color: #16a34a; }
-.zone-status.err { color: #dc2626; }
+.zone-status.ok  { color: var(--success-fg); }
+.zone-status.err { color: var(--danger-fg); }
 .date-filter-row { display: flex; gap: 5px; align-items: center; margin-top: 4px; }
-.date-filter-row input[type=date] { flex: 1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 7px; font-size: 11px; color: #374151; background: #fff; min-width: 0; }
-.date-filter-row span { font-size: 10px; color: #9ca3af; flex-shrink: 0; }
-.date-clear-btn { font-size: 10px; color: #6b7280; background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; margin-top: 2px; }
-.run-btn { margin-top: 8px; background: #1d4ed8; color: #fff; border: none; padding: 10px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: background .15s; }
-.run-btn:hover { background: #1e40af; }
-.run-btn:disabled { background: #bfdbfe; color: #93c5fd; cursor: not-allowed; }
-.export-btn { background: #fff; color: #374151; border: 1px solid #d1d5db; padding: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: all .15s; margin-top: 4px; }
-.export-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.date-filter-row input[type=date] { flex: 1; border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 7px; font-size: 11px; color: var(--text); background: var(--surface); min-width: 0; }
+.date-filter-row span { font-size: 10px; color: var(--text-faint); flex-shrink: 0; }
+.date-clear-btn { font-size: 10px; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; margin-top: 2px; }
+.run-btn { margin-top: 8px; background: var(--accent); color: #fff; border: none; padding: 10px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: background .15s; }
+.run-btn:hover { background: var(--accent-hover); }
+.run-btn:disabled { background: var(--accent-disabled-bg); color: var(--accent-disabled-fg); cursor: not-allowed; }
+.export-btn { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); padding: 8px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 7px; width: 100%; transition: all .15s; margin-top: 4px; }
+.export-btn:hover { border-color: var(--accent); color: var(--accent); }
 .export-btn:disabled { opacity: .4; cursor: not-allowed; }
-.info-box { background: #fff; border: 1px solid #e5e7eb; border-radius: 7px; padding: 9px 11px; font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.8; }
-.info-box summary { cursor: pointer; user-select: none; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; list-style: none; }
+.info-box { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 11px; font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.8; }
+.info-box summary { cursor: pointer; user-select: none; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); list-style: none; }
 .info-box summary::-webkit-details-marker { display: none; }
-.info-box summary::before { content: '▶'; display: inline-block; font-size: 9px; color: #9ca3af; margin-right: 6px; transition: transform .15s; }
+.info-box summary::before { content: '▶'; display: inline-block; font-size: 9px; color: var(--text-faint); margin-right: 6px; transition: transform .15s; }
 .info-box[open] summary::before { transform: rotate(90deg); }
 .info-box-body { margin-top: 8px; }
-.info-box strong { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; display: block; margin-top: 8px; margin-bottom: 1px; }
+.info-box strong { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); display: block; margin-top: 8px; margin-bottom: 1px; }
 .info-box strong:first-child { margin-top: 0; }
 
 /* ── Main ── */
 .main { padding: 0; display: flex; flex-direction: column; min-width: 640px; overflow: visible; }
-.main-header { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 14; background: #f0f0ee; padding: 12px 24px 0; box-sizing: border-box; transition: left .18s ease; }
-.filter-bar-sticky { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 15; background: #f0f0ee; box-sizing: border-box; padding: 8px 24px 10px; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; transition: left .18s ease; }
+.main-header { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 14; background: var(--bg); padding: 12px 24px 0; box-sizing: border-box; transition: left .18s ease; }
+.filter-bar-sticky { position: fixed; top: var(--header-h, 45px); left: 260px; right: 0; z-index: 15; background: var(--bg); box-sizing: border-box; padding: 8px 24px 10px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); transition: left .18s ease; }
 .main-scroll { padding: 0 24px 24px; overflow: visible; flex: 1; }
-.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; gap: 8px; color: #aaa; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 60vh; gap: 8px; color: var(--text-faint); }
 .empty-state .big { font-size: 40px; }
 .empty-state p { font-size: 13px; }
-.empty-state p.sub { font-size: 11px; color: #ccc; }
+.empty-state p.sub { font-size: 11px; color: var(--text-faint); }
 
 /* ── Stats ── */
 .stats-row { display: grid; gap: 10px; margin-bottom: 0; }
@@ -105,217 +282,217 @@ header span { font-size: 12px; color: #6b7280; font-weight: 600; }
 .stats-row.cols-4 { grid-template-columns: repeat(4, minmax(140px, 220px)); }
 .stats-row.cols-3 { grid-template-columns: repeat(3, minmax(160px, 260px)); }
 .stats-sticky { padding-bottom: 4px; }
-.stat-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 11px 14px; }
-.stat-card .val { font-size: 24px; font-weight: 700; line-height: 1; margin-bottom: 3px; color: #111; }
-.stat-card .val.red { color: #dc2626; }
-.stat-card .lbl { font-size: 11px; color: #888; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 11px 14px; }
+.stat-card .val { font-size: 24px; font-weight: 700; line-height: 1; margin-bottom: 3px; color: var(--text-strong); }
+.stat-card .val.red { color: var(--danger-fg); }
+.stat-card .lbl { font-size: 11px; color: var(--text-faint); }
 
 /* ── Filter bar ── */
 .filter-row { display: flex; gap: 10px; margin-bottom: 0; align-items: center; flex-wrap: wrap; }
-.filter-row input[type=text] { border: 1px solid #d1d5db; background: #fff; color: #111; padding: 6px 10px; border-radius: 4px; font-size: 12px; width: 200px; outline: none; }
-.filter-row input[type=text]:focus { border-color: #3b82f6; }
-.filter-row label { font-size: 12px; color: #555; display: flex; align-items: center; gap: 5px; cursor: pointer; }
-.filter-row input[type=checkbox] { cursor: pointer; accent-color: #1d4ed8; }
-.row-count { font-size: 11px; color: #999; margin-left: 16px; }
+.filter-row input[type=text] { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-strong); padding: 6px 10px; border-radius: 4px; font-size: 12px; width: 200px; outline: none; }
+.filter-row input[type=text]:focus { border-color: var(--accent-soft); }
+.filter-row label { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.filter-row input[type=checkbox] { cursor: pointer; accent-color: var(--accent); }
+.row-count { font-size: 11px; color: var(--text-faint); margin-left: 16px; }
 
 /* ── Tables (shared) ── */
-.table-wrap { border: 1px solid #e5e7eb; border-radius: 5px; overflow: visible; background: #fff; }
+.table-wrap { border: 1px solid var(--border); border-radius: 5px; overflow: visible; background: var(--surface); }
 table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; }
-thead tr.group-row th { background: #f9fafb; padding: 5px 14px 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #bbb; border-bottom: 1px solid #f0f0f0; white-space: nowrap; position: sticky; top: 0; z-index: 12; text-align: center; }
-thead tr.group-row th.g-attendance { color: #4a8f5e; }
-thead tr.group-row th.g-absences   { color: #b45309; }
-thead tr.group-row th.g-drops      { color: #b91c1c; }
-thead tr.group-row th.g-prep       { color: #7c3aed; }
-thead tr.group-row th.g-close      { color: #0369a1; }
-thead tr.col-row th { background: #f9fafb; padding: 7px 14px; text-align: right; font-size: 11px; font-weight: 600; color: #555; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 11; box-shadow: 0 -30px 0 0 #f9fafb; }
-thead tr.col-row th.c-attendance { color: #4a8f5e; }
-thead tr.col-row th.c-absences   { color: #b45309; }
-thead tr.col-row th.c-drops      { color: #b91c1c; }
-thead tr.col-row th:hover { color: #1d4ed8; }
-thead tr.col-row th.sorted { color: #1d4ed8; }
+thead tr.group-row th { background: var(--surface-hover); padding: 5px 14px 4px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; z-index: 12; text-align: center; }
+thead tr.group-row th.g-attendance { color: var(--green-muted-fg); }
+thead tr.group-row th.g-absences   { color: var(--warn-fg-strong); }
+thead tr.group-row th.g-drops      { color: var(--danger-fg-strong); }
+thead tr.group-row th.g-prep       { color: var(--purple-fg); }
+thead tr.group-row th.g-close      { color: var(--sky-fg); }
+thead tr.col-row th { background: var(--surface-hover); padding: 7px 14px; text-align: right; font-size: 11px; font-weight: 600; color: var(--text-muted); white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 11; box-shadow: 0 -30px 0 0 var(--surface-hover); }
+thead tr.col-row th.c-attendance { color: var(--green-muted-fg); }
+thead tr.col-row th.c-absences   { color: var(--warn-fg-strong); }
+thead tr.col-row th.c-drops      { color: var(--danger-fg-strong); }
+thead tr.col-row th:hover { color: var(--accent); }
+thead tr.col-row th.sorted { color: var(--accent); }
 thead tr.col-row th.sorted::after { content: ' ↕'; font-size: 9px; }
-th.sep-left, td.sep-left { border-left: 1px solid #e5e7eb; }
-tbody tr.summary-row { border-bottom: 1px solid #f0f0ee; cursor: pointer; background: #fff; }
+th.sep-left, td.sep-left { border-left: 1px solid var(--border); }
+tbody tr.summary-row { border-bottom: 1px solid var(--border); cursor: pointer; background: var(--surface); }
 tbody tr.summary-row td.expand-arrow,
-tbody tr.summary-row td.name-cell { background: #fff; }
+tbody tr.summary-row td.name-cell { background: var(--surface); }
 tbody tr.summary-row.flagged td.expand-arrow,
-tbody tr.summary-row.flagged td.name-cell { background: #fff5f5; }
+tbody tr.summary-row.flagged td.name-cell { background: var(--row-flagged); }
 tbody tr.summary-row.flagged:hover td.expand-arrow,
-tbody tr.summary-row.flagged:hover td.name-cell { background: #fee2e2; }
+tbody tr.summary-row.flagged:hover td.name-cell { background: var(--row-flagged-hover); }
 tbody tr.summary-row:hover td.expand-arrow,
-tbody tr.summary-row:hover td.name-cell { background: #f8f8f6; }
+tbody tr.summary-row:hover td.name-cell { background: var(--row-hover); }
 tbody tr.summary-row.open td.expand-arrow,
-tbody tr.summary-row.open td.name-cell { background: #f0f5ff; }
-tbody tr.summary-row:hover { background: #f8f8f6; }
-tbody tr.summary-row.flagged { background: #fff5f5; }
-tbody tr.summary-row.flagged:hover { background: #fee2e2; }
-tbody tr.summary-row.open { background: #f0f5ff; }
-td { padding: 8px 14px; white-space: nowrap; font-size: 13px; color: #374151; background: inherit; }
-td.name-cell { font-weight: 600; font-size: 13px; color: #111; min-width: 180px; white-space: nowrap; position: sticky; left: 288px; z-index: 2; }
-td.expand-arrow { width: 28px; padding: 8px 6px 8px 12px; color: #aaa; font-size: 11px; position: sticky; left: 260px; z-index: 2; }
+tbody tr.summary-row.open td.name-cell { background: var(--row-open); }
+tbody tr.summary-row:hover { background: var(--row-hover); }
+tbody tr.summary-row.flagged { background: var(--row-flagged); }
+tbody tr.summary-row.flagged:hover { background: var(--row-flagged-hover); }
+tbody tr.summary-row.open { background: var(--row-open); }
+td { padding: 8px 14px; white-space: nowrap; font-size: 13px; color: var(--text); background: inherit; }
+td.name-cell { font-weight: 600; font-size: 13px; color: var(--text-strong); min-width: 180px; white-space: nowrap; position: sticky; left: 288px; z-index: 2; }
+td.expand-arrow { width: 28px; padding: 8px 6px 8px 12px; color: var(--text-faint); font-size: 11px; position: sticky; left: 260px; z-index: 2; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.num.zero { color: #ccc; }
+td.num.zero { color: var(--text-faint); }
 td.pct { font-weight: 700; text-align: right; }
-td.c-ok   { color: #16a34a; }
-td.c-warn { color: #d97706; }
-td.c-red  { color: #dc2626; }
-.flag-badge { display: inline-block; background: #dc2626; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; margin-left: 7px; vertical-align: middle; }
+td.c-ok   { color: var(--success-fg); }
+td.c-warn { color: var(--warn-solid); }
+td.c-red  { color: var(--danger-fg); }
+.flag-badge { display: inline-block; background: var(--danger-fg); color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; margin-left: 7px; vertical-align: middle; }
 
 /* ── Detail panel (attendance mode) ── */
-tbody tr.detail-row td { padding: 0; background: #f4f6fb; border-bottom: 2px solid #dce3f0; overflow-x: auto; }
+tbody tr.detail-row td { padding: 0; background: var(--panel-attendance); border-bottom: 2px solid var(--border-soft); overflow-x: auto; }
 .detail-panel { padding: 10px 12px 12px 12px; }
 .detail-sections { display: grid; grid-template-columns: repeat(3, 340px); gap: 12px; }
-.detail-section h4 { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #888; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #e0e4ee; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
-.detail-section h4.h-attendance { color: #4a8f5e; border-color: #c6e0ce; }
-.detail-section h4.h-absences   { color: #b45309; border-color: #fde68a; }
-.detail-section h4.h-drops      { color: #b91c1c; border-color: #fecaca; }
-.detail-empty { font-size: 12px; color: #bbb; font-style: italic; padding: 4px 0; }
-.detail-item { border: 1px solid #e5e8f0; border-radius: 4px; background: #fff; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; white-space: normal; }
+.detail-section h4 { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border-soft); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.detail-section h4.h-attendance { color: var(--green-muted-fg); border-color: var(--green-muted-border); }
+.detail-section h4.h-absences   { color: var(--warn-fg-strong); border-color: var(--warn-border); }
+.detail-section h4.h-drops      { color: var(--danger-fg-strong); border-color: var(--danger-border); }
+.detail-empty { font-size: 12px; color: var(--text-faint); font-style: italic; padding: 4px 0; }
+.detail-item { border: 1px solid var(--border-soft); border-radius: 4px; background: var(--surface); padding: 8px 10px; margin-bottom: 6px; font-size: 12px; white-space: normal; }
 .detail-item:last-child { margin-bottom: 0; }
-.detail-item .di-date { font-weight: 600; color: #111; margin-bottom: 3px; }
-.detail-item .di-meta { color: #666; margin-bottom: 3px; line-height: 1.5; }
-.detail-item .di-note { font-style: italic; color: #555; background: #f9f9f9; border-left: 2px solid #d1d5db; padding: 4px 7px; margin-top: 5px; border-radius: 0 3px 3px 0; white-space: normal; line-height: 1.5; }
+.detail-item .di-date { font-weight: 600; color: var(--text-strong); margin-bottom: 3px; }
+.detail-item .di-meta { color: var(--text-muted); margin-bottom: 3px; line-height: 1.5; }
+.detail-item .di-note { font-style: italic; color: var(--text-muted); background: var(--surface-hover); border-left: 2px solid var(--border-strong); padding: 4px 7px; margin-top: 5px; border-radius: 0 3px 3px 0; white-space: normal; line-height: 1.5; }
 .di-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
-.di-badge.drop    { background: #fee2e2; color: #b91c1c; }
-.di-badge.filled  { background: #dcfce7; color: #15803d; }
-.di-badge.open    { background: #fef3c7; color: #92400e; }
-.di-badge.swap    { background: #e0e7ff; color: #3730a3; }
-.di-badge.noclock { background: #fef3c7; color: #92400e; }
-.di-badge.clocked { background: #f0fdf4; color: #15803d; }
-.di-badge.manual  { background: #ede9fe; color: #6d28d9; }
-.di-badge.autocorrect { background: #dbeafe; color: #1d4ed8; }
-.shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer; margin-left: 4px; transition: all .12s; vertical-align: middle; white-space: nowrap; }
-.shift-filter-btn.active { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
-.shift-copy-btn { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #9ca3af; cursor: pointer; margin-left: 2px; transition: all .12s; vertical-align: middle; white-space: nowrap; line-height: 1; }
-.shift-copy-btn:hover { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
-.shift-copy-btn.copied { background: #f0fdf4; border-color: #86efac; color: #16a34a; }
-.mark-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
-.mark-btn:hover { border-color: #6d28d9; color: #6d28d9; background: #faf5ff; }
-.mark-btn.undo { border-color: #d1d5db; color: #9ca3af; background: #f9fafb; }
-.mark-btn.undo:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
-.omit-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid #e5e7eb; background: #f9fafb; color: #9ca3af; cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
-.omit-btn:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
-.omit-btn.omitted { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
-.omit-btn.omitted:hover { border-color: #6b7280; color: #6b7280; background: #f9fafb; }
+.di-badge.drop    { background: var(--danger-bg); color: var(--danger-fg-strong); }
+.di-badge.filled  { background: var(--success-bg); color: var(--success-fg-strong); }
+.di-badge.open    { background: var(--warn-bg); color: var(--warn-fg); }
+.di-badge.swap    { background: var(--indigo-bg); color: var(--indigo-fg); }
+.di-badge.noclock { background: var(--warn-bg); color: var(--warn-fg); }
+.di-badge.clocked { background: var(--success-bg-soft); color: var(--success-fg-strong); }
+.di-badge.manual  { background: var(--purple-bg); color: var(--purple-fg); }
+.di-badge.autocorrect { background: var(--info-bg); color: var(--accent); }
+.shift-filter-btn { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 3px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-muted); cursor: pointer; margin-left: 4px; transition: all .12s; vertical-align: middle; white-space: nowrap; }
+.shift-filter-btn.active { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-fg); }
+.shift-copy-btn { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-faint); cursor: pointer; margin-left: 2px; transition: all .12s; vertical-align: middle; white-space: nowrap; line-height: 1; }
+.shift-copy-btn:hover { background: var(--success-bg-soft); border-color: var(--success-border); color: var(--success-fg); }
+.shift-copy-btn.copied { background: var(--success-bg-soft); border-color: var(--success-border); color: var(--success-fg); }
+.mark-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
+.mark-btn:hover { border-color: var(--purple-fg); color: var(--purple-fg); background: var(--purple-bg-soft); }
+.mark-btn.undo { border-color: var(--border-strong); color: var(--text-faint); background: var(--surface-hover); }
+.mark-btn.undo:hover { border-color: var(--danger-fg); color: var(--danger-fg); background: var(--danger-bg-soft); }
+.omit-btn { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 2px 8px; font-size: 10px; font-weight: 600; border-radius: 3px; border: 1px solid var(--border); background: var(--surface-hover); color: var(--text-faint); cursor: pointer; vertical-align: middle; transition: all .12s; white-space: nowrap; }
+.omit-btn:hover { border-color: var(--danger-fg); color: var(--danger-fg); background: var(--danger-bg-soft); }
+.omit-btn.omitted { border-color: var(--danger-border); color: var(--danger-fg); background: var(--danger-bg-soft); }
+.omit-btn.omitted:hover { border-color: var(--text-muted); color: var(--text-muted); background: var(--surface-hover); }
 .detail-item.omitted-shift { opacity: 0.45; }
-.detail-item.has-absence { border-color: #f59e0b; background: #fffbeb; }
-.detail-item.has-absence .di-date { color: #92400e; }
-.absence-overlap-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
-.di-badge.self    { background: #f3f4f6; color: #374151; }
-.di-badge.staff   { background: #fef3c7; color: #92400e; }
-.di-badge.pfd     { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+.detail-item.has-absence { border-color: var(--warn-border); background: var(--warn-bg-soft); }
+.detail-item.has-absence .di-date { color: var(--warn-fg); }
+.absence-overlap-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-border); }
+.di-badge.self    { background: var(--surface-hover-2); color: var(--text); }
+.di-badge.staff   { background: var(--warn-bg); color: var(--warn-fg); }
+.di-badge.pfd     { background: var(--pfd-bg); color: var(--pfd-fg); border: 1px solid var(--pfd-border); }
 
 /* ── Prep/Close mode ── */
-.pc-section-title { font-size: 13px; font-weight: 700; color: #111; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
-.pc-section-title.prep  { border-color: #a78bfa; color: #5b21b6; }
-.pc-section-title.close { border-color: #7dd3fc; color: #0369a1; }
+.pc-section-title { font-size: 13px; font-weight: 700; color: var(--text-strong); margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+.pc-section-title.prep  { border-color: var(--purple-border); color: var(--purple-fg-deep); }
+.pc-section-title.close { border-color: var(--sky-border); color: var(--sky-fg); }
 .pc-two-col { display: flex; flex-direction: column; gap: 32px; margin-bottom: 24px; }
 
 .commit-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
-.commit-badge.met     { background: #dcfce7; color: #15803d; }
-.commit-badge.partial { background: #fef3c7; color: #92400e; }
-.commit-badge.missed  { background: #fee2e2; color: #b91c1c; }
-.commit-badge.none    { background: #f3f4f6; color: #9ca3af; font-weight: 400; font-style: italic; }
+.commit-badge.met     { background: var(--success-bg); color: var(--success-fg-strong); }
+.commit-badge.partial { background: var(--warn-bg); color: var(--warn-fg); }
+.commit-badge.missed  { background: var(--danger-bg); color: var(--danger-fg-strong); }
+.commit-badge.none    { background: var(--surface-hover-2); color: var(--text-faint); font-weight: 400; font-style: italic; }
 
 .commit-breakdown { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .day-slot { font-size: 11px; padding: 2px 7px; border-radius: 3px; font-weight: 600; }
-.day-slot.met     { background: #dcfce7; color: #15803d; }
-.day-slot.partial { background: #fef3c7; color: #92400e; }
-.day-slot.missed  { background: #fee2e2; color: #b91c1c; }
-.day-slot.once    { background: #f3f4f6; color: #6b7280; font-weight: 400; }
+.day-slot.met     { background: var(--success-bg); color: var(--success-fg-strong); }
+.day-slot.partial { background: var(--warn-bg); color: var(--warn-fg); }
+.day-slot.missed  { background: var(--danger-bg); color: var(--danger-fg-strong); }
+.day-slot.once    { background: var(--surface-hover-2); color: var(--text-muted); font-weight: 400; }
 
-tbody tr.pc-detail-row td { padding: 0; background: #f8f5ff; border-bottom: 2px solid #ddd6fe; }
-tbody tr.pc-detail-row.close td { background: #f0f9ff; border-bottom-color: #bae6fd; }
+tbody tr.pc-detail-row td { padding: 0; background: var(--panel-prep); border-bottom: 2px solid var(--purple-border); }
+tbody tr.pc-detail-row.close td { background: var(--panel-close); border-bottom-color: var(--sky-border); }
 .pc-detail-panel { padding: 10px 16px 12px 16px; }
 .pc-commit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-.pc-commit-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; font-size: 12px; }
-.pc-commit-card .pcc-day { font-weight: 700; color: #111; margin-bottom: 5px; font-size: 12px; }
-.pc-commit-card .pcc-stat { color: #555; margin-bottom: 4px; }
+.pc-commit-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; font-size: 12px; }
+.pc-commit-card .pcc-day { font-weight: 700; color: var(--text-strong); margin-bottom: 5px; font-size: 12px; }
+.pc-commit-card .pcc-stat { color: var(--text-muted); margin-bottom: 4px; }
 .pc-commit-card .pcc-pct { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
 .pcc-shifts { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
-.pcc-shift { font-size: 11px; display: flex; gap: 6px; align-items: center; color: #555; flex-wrap: wrap; }
+.pcc-shift { font-size: 11px; display: flex; gap: 6px; align-items: center; color: var(--text-muted); flex-wrap: wrap; }
 .pcc-shift .pcc-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.pcc-dot.ok  { background: #22c55e; }
-.pcc-dot.bad { background: #ef4444; }
+.pcc-dot.ok  { background: var(--success-solid); }
+.pcc-dot.bad { background: var(--danger-solid); }
 
-.error-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #dc2626; margin-bottom: 14px; }
+.error-box { background: var(--danger-bg-soft); border: 1px solid var(--danger-border); border-radius: 4px; padding: 10px 14px; font-size: 12px; color: var(--danger-fg); margin-bottom: 14px; }
 
 /* ── Insights tab ── */
 .ins-section { margin-bottom: 28px; }
 .ins-section.collapsed { margin-bottom: 4px; }
-.ins-section-title { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 12px; padding-bottom: 7px; border-bottom: 2px solid #e5e7eb; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.ins-section-title { font-size: 13px; font-weight: 700; color: var(--text-strong); margin-bottom: 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border); display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
 .ins-section.collapsed .ins-section-title { margin-bottom: 0; }
-.ins-section-title:hover { color: #1d4ed8; border-bottom-color: #bfdbfe; }
-.ins-section-title:hover .ins-sub { color: #93c5fd; }
-.ins-section-title .ins-sub { font-size: 11px; font-weight: 400; color: #9ca3af; }
-.ins-section-title .ins-chevron { font-size: 10px; color: #9ca3af; margin-left: auto; flex-shrink: 0; transition: transform .15s; }
+.ins-section-title:hover { color: var(--accent); border-bottom-color: var(--accent-disabled-bg); }
+.ins-section-title:hover .ins-sub { color: var(--accent-disabled-fg); }
+.ins-section-title .ins-sub { font-size: 11px; font-weight: 400; color: var(--text-faint); }
+.ins-section-title .ins-chevron { font-size: 10px; color: var(--text-faint); margin-left: auto; flex-shrink: 0; transition: transform .15s; }
 .ins-section.collapsed .ins-chevron { transform: rotate(-90deg); }
 .ins-section-body { }
 .ins-section.collapsed .ins-section-body { display: none; }
-.ins-tooltip { position: fixed; background: #1f2937; color: #fff; font-size: 11px; font-family: -apple-system,sans-serif; padding: 6px 10px; border-radius: 5px; pointer-events: none; white-space: nowrap; z-index: 9999; display: none; line-height: 1.5; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
-.ins-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 5px; padding: 14px 16px; }
+.ins-tooltip { position: fixed; background: var(--tooltip-bg); color: #fff; font-size: 11px; font-family: -apple-system,sans-serif; padding: 6px 10px; border-radius: 5px; pointer-events: none; white-space: nowrap; z-index: 9999; display: none; line-height: 1.5; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.ins-card { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 14px 16px; }
 .ins-heatmap-wrap { overflow-x: auto; }
 .hc-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
-.hc-table th { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #9ca3af; padding: 5px 10px; text-align: right; border-bottom: 2px solid #e5e7eb; background: #f9fafb; }
+.hc-table th { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); padding: 5px 10px; text-align: right; border-bottom: 2px solid var(--border); background: var(--surface-hover); }
 .hc-table th.sortable { cursor: pointer; user-select: none; }
-.hc-table th.sortable:hover { color: #374151; }
-.hc-table th.sorted { color: #1d4ed8; }
+.hc-table th.sortable:hover { color: var(--text); }
+.hc-table th.sorted { color: var(--accent); }
 .hc-table th.sorted::after { content: ' ↕'; font-size: 8px; }
 .hc-table th.left { text-align: left; }
-.hc-table td { padding: 6px 10px; border-bottom: 1px solid #f0f0ee; text-align: right; font-variant-numeric: tabular-nums; }
-.hc-table td.left { text-align: left; font-weight: 600; color: #111; }
+.hc-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right; font-variant-numeric: tabular-nums; }
+.hc-table td.left { text-align: left; font-weight: 600; color: var(--text-strong); }
 .hc-table tr:last-child td { border-bottom: none; }
-.hc-table .delta-pos { color: #16a34a; font-weight: 700; }
-.hc-table .delta-neg { color: #dc2626; font-weight: 700; }
-.hc-table .delta-neu { color: #9ca3af; }
-.hc-table tr.hc-flagged td.left::after { content: ' ⚑'; color: #dc2626; font-size: 10px; }
-.offset-select { width: 100%; padding: 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; outline: none; cursor: pointer; color: #111; }
+.hc-table .delta-pos { color: var(--success-fg); font-weight: 700; }
+.hc-table .delta-neg { color: var(--danger-fg); font-weight: 700; }
+.hc-table .delta-neu { color: var(--text-faint); }
+.hc-table tr.hc-flagged td.left::after { content: ' ⚑'; color: var(--danger-fg); font-size: 10px; }
+.offset-select { width: 100%; padding: 8px; font-size: 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--surface); outline: none; cursor: pointer; color: var(--text-strong); }
 .details-arrow { display: inline-block; font-size: 9px; transition: transform .15s; }
 details[open] > summary .details-arrow { transform: rotate(90deg); }
 .btn-row { display: flex; gap: 4px; margin-top: 4px; }
 .btn-row .export-btn { margin-top: 0; flex: 1; min-width: 0; }
-.btn-compact { flex-shrink: 0; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 10px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; color: #374151; }
-.btn-compact:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.btn-compact { flex-shrink: 0; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; padding: 8px 10px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; color: var(--text); }
+.btn-compact:hover { border-color: var(--accent); color: var(--accent); }
 .btn-compact:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ── Snapshot browser panel ── */
 .snap-toggle { width: 100%; margin-top: 6px; }
-.snap-toggle.active { background: #f0fdf4; border-color: #86efac; color: #166534; }
-.snap-panel { background: #fafaf9; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin-top: 6px; }
+.snap-toggle.active { background: var(--success-bg-soft); border-color: var(--success-border); color: var(--success-fg-deep); }
+.snap-panel { background: var(--snap-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 6px; }
 .snap-save-row { display: flex; gap: 6px; margin-bottom: 6px; }
-.snap-save-row input[type="text"] { flex: 1; min-width: 0; border: 1px solid #d1d5db; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; background: #fff; color: #374151; outline: none; }
-.snap-save-row input[type="text"]:focus { border-color: #86efac; }
-.snap-save-row input[type="text"]::placeholder { color: #9ca3af; }
-.snap-save-btn { flex-shrink: 0; background: #166534; color: #fff; border: none; border-radius: 4px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
-.snap-save-btn:hover { background: #15803d; }
+.snap-save-row input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: 4px; padding: 5px 8px; font-size: 11px; font-family: 'IBM Plex Mono', monospace; background: var(--surface); color: var(--text); outline: none; }
+.snap-save-row input[type="text"]:focus { border-color: var(--success-border); }
+.snap-save-row input[type="text"]::placeholder { color: var(--text-faint); }
+.snap-save-btn { flex-shrink: 0; background: var(--success-fg-deep); color: #fff; border: none; border-radius: 4px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.snap-save-btn:hover { background: var(--success-fg-strong); }
 .snap-save-btn:disabled { opacity: .4; cursor: not-allowed; }
 .snap-msg { font-size: 11px; margin-bottom: 6px; font-weight: 600; padding: 4px 8px; border-radius: 4px; }
-.snap-msg.ok { color: #166534; background: #f0fdf4; }
-.snap-msg.err { color: #dc2626; background: #fef2f2; }
-.snap-list-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: 6px; margin-top: 8px; border-top: 1px solid #e5e7eb; padding-top: 8px; }
-.snap-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f3f4f6; }
+.snap-msg.ok { color: var(--success-fg-deep); background: var(--success-bg-soft); }
+.snap-msg.err { color: var(--danger-fg); background: var(--danger-bg-soft); }
+.snap-list-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); margin-bottom: 6px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.snap-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .snap-item:last-child { border-bottom: none; }
 .snap-item-info { flex: 1; min-width: 0; }
-.snap-item-name { font-size: 12px; font-weight: 600; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.snap-item-meta { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+.snap-item-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snap-item-meta { font-size: 10px; color: var(--text-faint); margin-top: 1px; }
 .snap-item-btns { display: flex; gap: 4px; flex-shrink: 0; }
-.snap-item-btn { background: #fff; border: 1px solid #d1d5db; border-radius: 3px; padding: 3px 8px; font-size: 10px; font-weight: 600; cursor: pointer; color: #374151; font-family: inherit; }
-.snap-item-btn:hover { border-color: #1d4ed8; color: #1d4ed8; }
-.snap-item-btn.delete { color: #dc2626; border-color: #fca5a5; }
-.snap-item-btn.delete:hover { background: #fef2f2; border-color: #dc2626; }
-.snap-empty { font-size: 11px; color: #9ca3af; padding: 6px 0; font-style: italic; }
+.snap-item-btn { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 3px; padding: 3px 8px; font-size: 10px; font-weight: 600; cursor: pointer; color: var(--text); font-family: inherit; }
+.snap-item-btn:hover { border-color: var(--accent); color: var(--accent); }
+.snap-item-btn.delete { color: var(--danger-fg); border-color: var(--danger-border); }
+.snap-item-btn.delete:hover { background: var(--danger-bg-soft); border-color: var(--danger-fg); }
+.snap-empty { font-size: 11px; color: var(--text-faint); padding: 6px 0; font-style: italic; }
 
 /* ── Sidebar toggle ── */
-.sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid #d1d5db; border-radius: 4px; width: 30px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: #374151; flex-shrink: 0; }
-.sidebar-toggle:hover { border-color: #1d4ed8; color: #1d4ed8; }
+.sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid var(--border-strong); border-radius: 4px; width: 30px; height: 28px; font-size: 15px; line-height: 1; cursor: pointer; color: var(--text); flex-shrink: 0; }
+.sidebar-toggle:hover { border-color: var(--accent); color: var(--accent); }
 .sidebar-collapsed .sidebar { transform: translateX(-100%); }
 .sidebar-collapsed .workspace { margin-left: 0; }
 .sidebar-collapsed .main-header,
 .sidebar-collapsed .filter-bar-sticky { left: 0; }
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9; }
 .sidebar-overlay.visible { display: block; }
-.mode-select { display: none; margin-left: auto; border: 1px solid #d1d5db; border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: #374151; background: #fff; cursor: pointer; flex-shrink: 0; }
-.mode-select:focus { outline: none; border-color: #1d4ed8; }
+.mode-select { display: none; margin-left: auto; border: 1px solid var(--border-strong); border-radius: 5px; padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--text); background: var(--surface); cursor: pointer; flex-shrink: 0; }
+.mode-select:focus { outline: none; border-color: var(--accent); }
 @media (max-width: 760px) {
   html, body { min-width: 0 !important; }
   .sidebar { transform: translateX(-100%); transition: transform .22s ease; z-index: 11; width: 260px; max-width: calc(100vw - 48px); padding-left: 10px; padding-right: 10px; overflow-x: hidden; }
@@ -444,14 +621,14 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <input type="date" id="filter-date-to" onchange="onDateFilterChange()" title="To date">
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
-      <span style="font-size:10px;color:#9ca3af" id="date-filter-label">All dates</span>
+      <span style="font-size:10px;color:var(--text-faint)" id="date-filter-label">All dates</span>
       <button class="date-clear-btn" onclick="clearDateFilter()">Clear</button>
     </div>
     <!-- Live periods: each has its own range so you can see both at a glance and
          setting one never disturbs the other. The filter above is the view window
          and auto-expands to cover whatever periods you've set. -->
     <div class="sidebar-label" style="margin-top:12px">Live Data Periods</div>
-    <div id="live-periods-hint" style="font-size:10px;color:#9ca3af;margin-bottom:4px;display:none"></div>
+    <div id="live-periods-hint" style="font-size:10px;color:var(--text-faint);margin-bottom:4px;display:none"></div>
     <div class="period-header p1">Period 1</div>
     <div class="date-filter-row">
       <input type="date" id="p1-from" title="Period 1 from date">
@@ -459,25 +636,25 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
       <input type="date" id="p1-to" onchange="syncPeriod2Start()" title="Period 1 end — the split point. Period 2 starts the next day.">
     </div>
     <div class="btn-row">
-      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">Set Period 1</button>
-      <button class="btn-compact" id="view-p1-btn" onclick="viewPeriod('1')" style="margin-top:3px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Show only Period 1 in the analysis view">View</button>
+      <button class="export-btn" id="set-p1-btn" onclick="setPeriodFromLive('1')" style="margin-top:3px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent);font-size:11px" title="Pull live scheduler data for the Period 1 range into Period 1">Set Period 1</button>
+      <button class="btn-compact" id="view-p1-btn" onclick="viewPeriod('1')" style="margin-top:3px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Show only Period 1 in the analysis view">View</button>
     </div>
     <div class="period-header p2" style="margin-top:8px">Period 2 <span style="font-weight:400;opacity:.7">(starts after Period 1)</span></div>
     <div class="date-filter-row">
-      <input type="date" id="p2-from" readonly tabindex="-1" style="background:#f3f4f6;color:#6b7280" title="Auto: the day after Period 1 ends">
+      <input type="date" id="p2-from" readonly tabindex="-1" style="background:var(--surface-hover-2);color:var(--text-muted)" title="Auto: the day after Period 1 ends">
       <span>→</span>
       <input type="date" id="p2-to" title="Period 2 to date">
     </div>
     <div class="btn-row">
-      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9;font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">Set Period 2</button>
-      <button class="btn-compact" id="view-p2-btn" onclick="viewPeriod('2')" style="margin-top:3px;background:#f5f3ff;border-color:#c4b5fd;color:#6d28d9" title="Show only Period 2 in the analysis view">View</button>
+      <button class="export-btn" id="set-p2-btn" onclick="setPeriodFromLive('2')" style="margin-top:3px;background:var(--purple-bg-soft);border-color:var(--purple-border);color:var(--purple-fg);font-size:11px" title="Pull live scheduler data for the Period 2 range into Period 2">Set Period 2</button>
+      <button class="btn-compact" id="view-p2-btn" onclick="viewPeriod('2')" style="margin-top:3px;background:var(--purple-bg-soft);border-color:var(--purple-border);color:var(--purple-fg)" title="Show only Period 2 in the analysis view">View</button>
     </div>
-    <button class="export-btn" id="view-all-btn" onclick="viewAllData()" style="margin-top:4px;background:#f9fafb;border-color:#d1d5db;color:#374151;font-size:11px" title="Reset the view to show all loaded data">View All Data</button>
+    <button class="export-btn" id="view-all-btn" onclick="viewAllData()" style="margin-top:4px;background:var(--surface-hover);border-color:var(--border-strong);color:var(--text);font-size:11px" title="Reset the view to show all loaded data">View All Data</button>
     <div id="set-period-msg" class="snap-msg" style="display:none"></div>
     <button class="run-btn" id="run-btn" onclick="analyze()" disabled style="margin-top:6px">Analyze</button>
 
     <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
-    <button class="export-btn" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8" title="Pull live scheduler data for the selected date range">Load Live Data</button>
+    <button class="export-btn" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
 
     <!-- Snapshot browser -->
@@ -494,121 +671,121 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <!-- PDF row: single worker (with dropdown) + all workers -->
     <div style="position:relative;margin-top:4px" id="worker-pdf-wrapper">
       <div class="btn-row" style="margin-top:0">
-        <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="margin-top:0;background:#fefce8;border-color:#fde047;color:#854d0e">Worker PDF</button>
-        <button class="btn-compact" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:#fefce8;border-color:#fde047;color:#854d0e" title="Export all worker reports as .zip">All</button>
+        <button class="export-btn" id="worker-pdf-btn" onclick="toggleWorkerDropdown()" disabled style="margin-top:0;background:var(--pfd-bg);border-color:var(--pfd-border);color:var(--pfd-fg)">Worker PDF</button>
+        <button class="btn-compact" id="bulk-pdf-btn" onclick="exportAllWorkerPDFs()" disabled style="background:var(--pfd-bg);border-color:var(--pfd-border);color:var(--pfd-fg)" title="Export all worker reports as .zip">All</button>
       </div>
-      <div id="worker-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;margin-top:2px">
-        <div style="padding:6px 8px;border-bottom:1px solid #f3f4f6">
+      <div id="worker-dropdown" style="display:none;position:absolute;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:50;margin-top:2px">
+        <div style="padding:6px 8px;border-bottom:1px solid var(--surface-hover-2)">
           <input id="worker-search" type="text" placeholder="Search employee..." oninput="filterWorkerDropdown(this.value)"
-            style="width:100%;box-sizing:border-box;border:1px solid #d1d5db;border-radius:4px;padding:5px 8px;font-size:12px;outline:none"
+            style="width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:4px;padding:5px 8px;font-size:12px;outline:none"
             onclick="event.stopPropagation()">
         </div>
         <div id="worker-dropdown-list" style="max-height:180px;overflow-y:auto"></div>
       </div>
     </div>
-    <button class="export-btn" id="github-push-btn" onclick="openGitHubPushModal()" disabled style="margin-top:4px;background:#f0fdf4;border-color:#86efac;color:#166534;font-size:11px">Publish Worker Portal</button>
+    <button class="export-btn" id="github-push-btn" onclick="openGitHubPushModal()" disabled style="margin-top:4px;background:var(--success-bg-soft);border-color:var(--success-border);color:var(--success-fg-deep);font-size:11px">Publish Worker Portal</button>
     <details style="margin-top:8px">
-      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> Timezone &amp; Advanced
       </summary>
       <div style="margin-top:6px">
-        <div style="font-size:10px;color:#9ca3af;margin-bottom:3px">Timezone</div>
+        <div style="font-size:10px;color:var(--text-faint);margin-bottom:3px">Timezone</div>
         <select id="tz-offset" class="offset-select" style="font-size:11px" onchange="if(!document.getElementById('run-btn').disabled) analyze()">
           <option value="America/New_York">Auto Eastern (DST-aware)</option>
           <option value="-4">Force EDT (-4)</option>
           <option value="-5">Force EST (-5)</option>
           <option value="literal">Literal (as written)</option>
         </select>
-        <div style="font-size:10px;color:#9ca3af;margin-top:10px;margin-bottom:3px">Utilities</div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:10px;margin-bottom:3px">Utilities</div>
         <div class="btn-row">
-          <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="margin-top:0;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8">Apply Clock Fixes</button>
-          <button class="btn-compact" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:#fef2f2;border-color:#fca5a5;color:#dc2626" title="Undo all auto-corrections">↩ <span id="correction-count">0</span></button>
+          <button class="export-btn" id="correct-btn" onclick="correctDiscrepancies()" disabled style="margin-top:0;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)">Apply Clock Fixes</button>
+          <button class="btn-compact" id="undo-corrections-btn" onclick="undoAllCorrections()" style="display:none;background:var(--danger-bg-soft);border-color:var(--danger-border);color:var(--danger-fg)" title="Undo all auto-corrections">↩ <span id="correction-count">0</span></button>
         </div>
         <div class="btn-row">
-          <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:#f0fdf4;border-color:#86efac;color:#166534">Export Snapshot</button>
+          <button class="export-btn" id="snapshot-btn" onclick="exportSnapshot()" disabled style="margin-top:0;background:var(--success-bg-soft);border-color:var(--success-border);color:var(--success-fg-deep)">Export Snapshot</button>
           <button class="btn-compact" id="export-btn" onclick="exportReport()" disabled title="Export to Excel">Excel</button>
         </div>
       </div>
     </details>
     <details id="closures-details" style="margin-top:8px">
-      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> College Closed Days
-        <span id="closures-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#e0f2fe;color:#0369a1;border-radius:3px;padding:1px 5px"></span>
+        <span id="closures-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:var(--sky-bg);color:var(--sky-fg);border-radius:3px;padding:1px 5px"></span>
       </summary>
-      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+      <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">
         Dates excluded from the "available slots" calculation in Prep &amp; Closing. Auto-detected when no one has any P&amp;C activity on a given date.
       </div>
-      <div id="closures-reanalyze-banner" style="display:none;background:#fef3c7;border:1px solid #fde68a;border-radius:4px;padding:6px 10px;margin-bottom:6px;font-size:11px;color:#92400e;display:none">
+      <div id="closures-reanalyze-banner" style="display:none;background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:4px;padding:6px 10px;margin-bottom:6px;font-size:11px;color:var(--warn-fg);display:none">
         ⚠ Closed days changed —
-        <button onclick="analyze()" style="font-size:11px;font-weight:700;color:#1d4ed8;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">re-analyze</button>
+        <button onclick="analyze()" style="font-size:11px;font-weight:700;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">re-analyze</button>
         to update results.
       </div>
-      <div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Auto-detected</div>
+      <div style="font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Auto-detected</div>
       <div id="inferred-closures-list" style="margin-bottom:8px">
-        <div style="font-size:11px;color:#d1d5db;font-style:italic">Run analyze to detect</div>
+        <div style="font-size:11px;color:var(--border-strong);font-style:italic">Run analyze to detect</div>
       </div>
-      <div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Add manually</div>
+      <div style="font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Add manually</div>
       <div style="display:flex;gap:4px;align-items:center">
-        <input type="date" id="closure-date-input" style="flex:1;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;min-width:0">
-        <button onclick="addManualClosure()" style="padding:4px 8px;font-size:11px;font-weight:600;background:#0369a1;color:#fff;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">+ Add</button>
+        <input type="date" id="closure-date-input" style="flex:1;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);min-width:0">
+        <button onclick="addManualClosure()" style="padding:4px 8px;font-size:11px;font-weight:600;background:var(--sky-fg);color:#fff;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">+ Add</button>
       </div>
       <div id="manual-closures-list" style="margin-top:6px">
-        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
+        <div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>
       </div>
     </details>
     <details id="penalty-free-details" style="margin-top:8px">
-      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> Penalty-Free Days
-        <span id="pfd-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 5px"></span>
+        <span id="pfd-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:var(--warn-bg);color:var(--warn-fg);border-radius:3px;padding:1px 5px"></span>
       </summary>
-      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+      <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">
         School is not in session, but shifts may still occur. Missed/dropped shifts on these dates won't count against attendance. Shifts <em>worked</em> still earn full credit.
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
-          <input type="date" id="pfd-start-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
+          <input type="date" id="pfd-start-input" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
         </div>
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
-          <input type="date" id="pfd-end-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="date" id="pfd-end-input" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
         </div>
       </div>
-      <button onclick="addPenaltyFreeDay()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:#d97706;color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Date / Range</button>
+      <button onclick="addPenaltyFreeDay()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:var(--warn-solid);color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Date / Range</button>
       <div id="pfd-list" style="margin-top:6px">
-        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
+        <div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>
       </div>
     </details>
     <details id="excused-details" style="margin-top:8px">
-      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
+      <summary style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">
         <span class="details-arrow">▶</span> Excused Absences
-        <span id="excused-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:#cffafe;color:#0e7490;border-radius:3px;padding:1px 5px"></span>
+        <span id="excused-count-badge" style="display:none;margin-left:auto;font-size:9px;font-weight:700;background:var(--cyan-bg);color:var(--cyan-fg);border-radius:3px;padding:1px 5px"></span>
       </summary>
-      <div style="margin-top:6px;font-size:11px;color:#6b7280;line-height:1.5;margin-bottom:6px">
+      <div style="margin-top:6px;font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">
         Mark a worker's emergency/excused dates. Their missed shifts in this range — dropped or not, covered or not — won't count against attendance. Shifts <em>worked</em> still earn full credit. Synced to the studio's server, so it follows you to any computer and re-applies automatically to every upload.
       </div>
       <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Worker</div>
-          <input list="excused-worker-options" id="excused-worker-input" placeholder="Name" autocomplete="off" onfocus="populateExcusedWorkerOptions()" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Worker</div>
+          <input list="excused-worker-options" id="excused-worker-input" placeholder="Name" autocomplete="off" onfocus="populateExcusedWorkerOptions()" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
           <datalist id="excused-worker-options"></datalist>
         </div>
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
-          <input type="date" id="excused-start-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Start</div>
+          <input type="date" id="excused-start-input" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
         </div>
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
-          <input type="date" id="excused-end-input" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">End <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="date" id="excused-end-input" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
         </div>
         <div>
-          <div style="font-size:9px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Note <span style="font-weight:400;opacity:.7">(optional)</span></div>
-          <input type="text" id="excused-note-input" placeholder="e.g. family emergency" style="width:100%;border:1px solid #d1d5db;border-radius:4px;padding:4px 6px;font-size:11px;color:#374151;background:#fff;box-sizing:border-box">
+          <div style="font-size:9px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Note <span style="font-weight:400;opacity:.7">(optional)</span></div>
+          <input type="text" id="excused-note-input" placeholder="e.g. family emergency" style="width:100%;border:1px solid var(--border-strong);border-radius:4px;padding:4px 6px;font-size:11px;color:var(--text);background:var(--surface);box-sizing:border-box">
         </div>
       </div>
-      <button onclick="addExcusedRange()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:#0e7490;color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Excused Range</button>
+      <button onclick="addExcusedRange()" style="width:100%;padding:5px 8px;font-size:11px;font-weight:600;background:var(--cyan-fg);color:#fff;border:none;border-radius:4px;cursor:pointer">+ Add Excused Range</button>
       <div id="excused-list" style="margin-top:6px">
-        <div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>
+        <div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>
       </div>
     </details>
     <details class="info-box">
@@ -1129,9 +1306,9 @@ function _analyzeInner() {
   const correctBtn = document.getElementById('correct-btn');
   if (correctBtn) {
     correctBtn.innerHTML = 'Apply Clock Fixes';
-    correctBtn.style.background = '#eff6ff';
-    correctBtn.style.borderColor = '#93c5fd';
-    correctBtn.style.color = '#1d4ed8';
+    correctBtn.style.background = 'var(--accent-bg)';
+    correctBtn.style.borderColor = 'var(--accent-disabled-fg)';
+    correctBtn.style.color = 'var(--accent)';
   }
   try {
     // ── Pre-pass: if date inputs are empty, do a lightweight scan to find the
@@ -1949,7 +2126,7 @@ function renderInsights() {
   const maxMissed = Math.max(1, ...orderedDays.map(d => dowStats[d].missed + dowStats[d].absences));
 
   function heatColor(v, max) {
-    if (max === 0 || v === 0) return '#f0fdf4';
+    if (max === 0 || v === 0) return 'var(--success-bg-soft)';
     const t = Math.min(1, v / max);
     if (t < 0.4) {
       const u = t / 0.4;
@@ -1983,7 +2160,7 @@ function renderInsights() {
       <text x="${x+cellW/2}" y="${y+61}" text-anchor="middle" font-size="9.5" fill="${subCol}" font-family="-apple-system,sans-serif">${pct !== null ? 'att: ' + pct + '%' : ''}</text>`;
   });
   const heatSVG = `<svg viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${svgW}px;display:block">
-    <text x="${padX}" y="20" font-size="9" font-weight="700" fill="#9ca3af" font-family="-apple-system,sans-serif" letter-spacing="0.08em">MISSED CLOCK-INS + ABSENCES BY DAY OF WEEK</text>
+    <text x="${padX}" y="20" font-size="9" font-weight="700" fill="var(--text-faint)" font-family="-apple-system,sans-serif" letter-spacing="0.08em">MISSED CLOCK-INS + ABSENCES BY DAY OF WEEK</text>
     ${cells}
   </svg>`;
 
@@ -2047,13 +2224,13 @@ function renderInsights() {
   }
 
   function empGridHeatColor(v, max, metric) {
-    if (v === null || v === undefined || max === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
+    if (v === null || v === undefined || max === 0) return { bg: 'var(--success-bg-soft)', text: 'var(--text-faint)' };
     const raw = metric === 'missRate' ? v.rate : v;
-    if (raw === 0) return { bg: '#f0fdf4', text: '#9ca3af' };
+    if (raw === 0) return { bg: 'var(--success-bg-soft)', text: 'var(--text-faint)' };
     // Thin data in missRate mode (< 3 assigned): use a muted amber instead of full heat scale
     // so a single missed shift doesn't render as alarming red
     if (metric === 'missRate' && v.assigned < 3 && v.missed > 0) {
-      return { bg: '#fef3c7', text: '#92400e' };
+      return { bg: 'var(--warn-bg)', text: 'var(--warn-fg)' };
     }
     const bg = heatColor(raw, max);
     const t = Math.min(1, raw / max);
@@ -2087,15 +2264,15 @@ function renderInsights() {
   let gridHTML = `<div id="emp-grid-wrap" style="overflow-x:auto">
   <table style="border-collapse:separate;border-spacing:0;width:100%;min-width:600px;font-size:12px">
     <thead><tr>
-      <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;padding:5px 12px 8px 0;min-width:160px;background:#f9fafb;position:sticky;left:0;z-index:2">Employee</th>
-      ${orderedDays.map(d => `<th style="text-align:center;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;padding:5px 4px 8px;width:76px;background:#f9fafb">${shortDay[d]}</th>`).join('')}
+      <th style="text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);padding:5px 12px 8px 0;min-width:160px;background:var(--surface-hover);position:sticky;left:0;z-index:2">Employee</th>
+      ${orderedDays.map(d => `<th style="text-align:center;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);padding:5px 4px 8px;width:76px;background:var(--surface-hover)">${shortDay[d]}</th>`).join('')}
     </tr></thead>
     <tbody>`;
 
   gridEmps.forEach(r => {
     const nameKey = normName(r.name);
     gridHTML += `<tr>
-      <td style="font-weight:600;color:#111;padding:3px 12px 3px 0;white-space:nowrap;background:#fff;position:sticky;left:0;z-index:1;border-bottom:1px solid #f0f0ee">${esc(r.name)}</td>
+      <td style="font-weight:600;color:var(--text-strong);padding:3px 12px 3px 0;white-space:nowrap;background:var(--surface);position:sticky;left:0;z-index:1;border-bottom:1px solid var(--bg)">${esc(r.name)}</td>
       ${orderedDays.map(dow => {
         const v = empGridCellVal(nameKey, dow, empGridMetric);
         const max = gridDayMax[empGridMetric][dow];
@@ -2105,7 +2282,7 @@ function renderInsights() {
         const mc = empGridCellVal(nameKey, dow, 'missCount');
         const ac = empGridCellVal(nameKey, dow, 'absCount');
         const tip = `${r.name} · ${dow}: ${mr !== null ? (mr.assigned < 3 ? mr.missed+'/'+mr.assigned : Math.round(mr.rate*100)+'%')+' miss rate' : 'no shifts'}, ${mc||0} missed, ${ac||0} absences`;
-        return `<td style="padding:3px 4px;border-bottom:1px solid #f0f0ee">
+        return `<td style="padding:3px 4px;border-bottom:1px solid var(--bg)">
           <div style="width:68px;height:28px;border-radius:5px;background:${c.bg};color:${c.text};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:11px;margin:0 auto;cursor:default"
             onmousemove="showInsTooltip(event,'${tip.replace(/'/g,"&#39;")}')" onmouseleave="hideInsTooltip()">${dv}</div>
         </td>`;
@@ -2114,8 +2291,8 @@ function renderInsights() {
   });
 
   // Team totals row
-  gridHTML += `<tr style="border-top:2px solid #e5e7eb">
-    <td style="font-weight:700;color:#374151;padding:5px 12px 4px 0;font-size:11px;background:#f9fafb;position:sticky;left:0;z-index:1">Team</td>
+  gridHTML += `<tr style="border-top:2px solid var(--border)">
+    <td style="font-weight:700;color:var(--text);padding:5px 12px 4px 0;font-size:11px;background:var(--surface-hover);position:sticky;left:0;z-index:1">Team</td>
     ${orderedDays.map((dow, di) => {
       const tot = gridColTotals[di];
       let v, max;
@@ -2124,7 +2301,7 @@ function renderInsights() {
       else { v = tot.absences || null; max = gridDayMax.absCount[dow]; }
       const c = empGridHeatColor(v, max, empGridMetric);
       const dv = empGridDisplayVal(v, empGridMetric);
-      return `<td style="padding:3px 4px;background:#f9fafb">
+      return `<td style="padding:3px 4px;background:var(--surface-hover)">
         <div style="width:68px;height:28px;border-radius:5px;background:${c.bg};color:${c.text};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;margin:0 auto">${dv}</div>
       </td>`;
     }).join('')}
@@ -2199,8 +2376,8 @@ function renderInsights() {
     for (let v = yFloor; v <= 100; v += 10) {
       const y = yScale(v);
       const isEighty = v === 80;
-      grid += `<line x1="${mL}" y1="${y}" x2="${cW-mR}" y2="${y}" stroke="${isEighty ? '#fca5a5' : '#f0f0ee'}" stroke-width="${isEighty ? 1.5 : 1}" stroke-dasharray="${isEighty ? '4,3' : ''}"/>`;
-      yLabels += `<text x="${mL-6}" y="${y+4}" text-anchor="end" font-size="9" fill="#9ca3af" font-family="-apple-system,sans-serif">${v}%</text>`;
+      grid += `<line x1="${mL}" y1="${y}" x2="${cW-mR}" y2="${y}" stroke="${isEighty ? 'var(--danger-border)' : 'var(--border)'}" stroke-width="${isEighty ? 1.5 : 1}" stroke-dasharray="${isEighty ? '4,3' : ''}"/>`;
+      yLabels += `<text x="${mL-6}" y="${y+4}" text-anchor="end" font-size="9" fill="var(--text-faint)" font-family="-apple-system,sans-serif">${v}%</text>`;
     }
 
     // Filled area under line
@@ -2214,16 +2391,16 @@ function renderInsights() {
     let xLabels = '';
     wowData.forEach((w, i) => {
       if (i % step !== 0 && i !== n-1) return;
-      xLabels += `<text x="${xScale(i)}" y="${cH - mB + 14}" text-anchor="middle" font-size="9" fill="#9ca3af" font-family="-apple-system,sans-serif">${w.label}</text>`;
+      xLabels += `<text x="${xScale(i)}" y="${cH - mB + 14}" text-anchor="middle" font-size="9" fill="var(--text-faint)" font-family="-apple-system,sans-serif">${w.label}</text>`;
     });
 
     // Dots with real tooltip handlers (SVG <title> is unreliable in Safari)
     let dots = '';
     wowData.forEach((w, i) => {
       const cx = xScale(i), cy = yScale(w.pct);
-      const col = w.pct >= 90 ? '#16a34a' : w.pct >= 80 ? '#d97706' : '#dc2626';
+      const col = w.pct >= 90 ? 'var(--success-fg)' : w.pct >= 80 ? 'var(--warn-solid)' : 'var(--danger-fg)';
       const tip = `Week of ${w.label}: ${w.pct}% (${w.worked}/${w.assigned} clocked in, ${w.absences} absence${w.absences !== 1 ? 's' : ''})`;
-      dots += `<circle cx="${cx}" cy="${cy}" r="5" fill="${col}" stroke="#fff" stroke-width="1.5" style="cursor:pointer"
+      dots += `<circle cx="${cx}" cy="${cy}" r="5" fill="${col}" stroke="var(--surface)" stroke-width="1.5" style="cursor:pointer"
         onmousemove="showInsTooltip(event,'${tip.replace(/'/g,'&#39;')}')"
         onmouseleave="hideInsTooltip()"></circle>`;
     });
@@ -2232,25 +2409,25 @@ function renderInsights() {
     const eightyY = yScale(80);
 
     wowSVG = `<svg viewBox="0 0 ${cW} ${cH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
-      <text x="${mL}" y="10" font-size="9" font-weight="700" fill="#9ca3af" font-family="-apple-system,sans-serif" letter-spacing="0.08em">TEAM ATTENDANCE % — WEEK OVER WEEK</text>
+      <text x="${mL}" y="10" font-size="9" font-weight="700" fill="var(--text-faint)" font-family="-apple-system,sans-serif" letter-spacing="0.08em">TEAM ATTENDANCE % — WEEK OVER WEEK</text>
       ${grid}
       ${yLabels}
       ${xLabels}
-      <text x="${cW-mR}" y="${eightyY - 4}" text-anchor="end" font-size="8" fill="#fca5a5" font-family="-apple-system,sans-serif">80% threshold</text>
+      <text x="${cW-mR}" y="${eightyY - 4}" text-anchor="end" font-size="8" fill="var(--danger-border)" font-family="-apple-system,sans-serif">80% threshold</text>
       <defs>
         <linearGradient id="wow-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.15"/>
-          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+          <stop offset="0%" stop-color="var(--accent-soft)" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="var(--accent-soft)" stop-opacity="0.02"/>
         </linearGradient>
       </defs>
       <path d="${areaPath}" fill="url(#wow-fill)"/>
-      <path d="${linePath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${linePath}" fill="none" stroke="var(--accent-soft)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       ${dots}
     </svg>`;
   } else if (wowData.length === 1) {
-    wowSVG = `<div style="font-size:12px;color:#9ca3af;font-style:italic;padding:12px 0">Only one week of data — need at least two weeks for a trend.</div>`;
+    wowSVG = `<div style="font-size:12px;color:var(--text-faint);font-style:italic;padding:12px 0">Only one week of data — need at least two weeks for a trend.</div>`;
   } else {
-    wowSVG = `<div style="font-size:12px;color:#9ca3af;font-style:italic;padding:12px 0">No week data available.</div>`;
+    wowSVG = `<div style="font-size:12px;color:var(--text-faint);font-style:italic;padding:12px 0">No week data available.</div>`;
   }
 
   // ── 3. Half-semester compare ──────────────────────────────────────────────
@@ -2334,7 +2511,7 @@ function renderInsights() {
     const dTxt = r.delta === null ? '—' : (r.delta > 0 ? '+' : '') + r.delta + '%';
     const flagged = r.delta !== null && r.delta <= -10;
     const totTxt = r.pctTotal !== null && r.pctTotal !== undefined ? r.pctTotal + '%' : '—';
-    const totCls = r.pctTotal === null || r.pctTotal === undefined ? '' : r.pctTotal < 80 ? ' style="color:#dc2626;font-weight:600"' : '';
+    const totCls = r.pctTotal === null || r.pctTotal === undefined ? '' : r.pctTotal < 80 ? ' style="color:var(--danger-fg);font-weight:600"' : '';
     return `<tr${flagged ? ' class="hc-flagged"' : ''}>
       <td class="left">${esc(r.name)}</td>
       <td>${p1}</td><td>${p2}</td>
@@ -2420,13 +2597,13 @@ function renderInsights() {
     return `<tr>
       <td class="left">${esc(r.name)}</td>
       <td style="width:96px;padding-right:4px">
-        <div style="width:80px;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden;margin-left:auto">
-          <div style="width:${barW}px;height:100%;background:#7c3aed;border-radius:4px"></div>
+        <div style="width:80px;height:8px;background:var(--surface-hover-2);border-radius:4px;overflow:hidden;margin-left:auto">
+          <div style="width:${barW}px;height:100%;background:var(--purple-fg);border-radius:4px"></div>
         </div>
       </td>
-      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#7c3aed;font-weight:700;padding-left:0;width:36px">${r.lateCount}</td>
-      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#7c3aed">${fmtMin(r.avgMin)}</td>
-      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#6b7280">${fmtMin(r.maxMin)}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--purple-fg);font-weight:700;padding-left:0;width:36px">${r.lateCount}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--purple-fg)">${fmtMin(r.avgMin)}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted)">${fmtMin(r.maxMin)}</td>
       <td style="text-align:right;font-variant-numeric:tabular-nums" class="${rateCls}">${r.lateRate}%</td>
     </tr>`;
   }).join('');
@@ -2519,13 +2696,13 @@ function renderInsights() {
     const y = bMT + 14 + i * (barH + barGap);
     const pct = noticeTotalAbsences > 0 ? Math.round(count / noticeTotalAbsences * 100) : 0;
     bars += `
-      <text x="${bML - 6}" y="${y + barH/2 + 4}" text-anchor="end" font-size="10" fill="#6b7280" font-family="-apple-system,sans-serif">${b.label}</text>
-      <rect x="${bML}" y="${y}" width="${bPlotW}" height="${barH}" rx="3" fill="#f3f4f6"/>
-      <rect x="${bML}" y="${y}" width="${Math.max(fillW,0)}" height="${barH}" rx="3" fill="#3b82f6"/>
-      <text x="${bML + Math.max(fillW,0) + 6}" y="${y + barH/2 + 4}" font-size="11" fill="#374151" font-family="-apple-system,sans-serif" font-weight="600">${count} <tspan font-weight="400" fill="#9ca3af">(${pct}%)</tspan></text>`;
+      <text x="${bML - 6}" y="${y + barH/2 + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)" font-family="-apple-system,sans-serif">${b.label}</text>
+      <rect x="${bML}" y="${y}" width="${bPlotW}" height="${barH}" rx="3" fill="var(--surface-hover-2)"/>
+      <rect x="${bML}" y="${y}" width="${Math.max(fillW,0)}" height="${barH}" rx="3" fill="var(--accent-soft)"/>
+      <text x="${bML + Math.max(fillW,0) + 6}" y="${y + barH/2 + 4}" font-size="11" fill="var(--text)" font-family="-apple-system,sans-serif" font-weight="600">${count} <tspan font-weight="400" fill="var(--text-faint)">(${pct}%)</tspan></text>`;
   });
   const distSVG = `<svg viewBox="0 0 ${bW} ${bH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:${bW}px;display:block">
-    <text x="${bML}" y="12" font-size="9" font-weight="700" fill="#9ca3af" font-family="-apple-system,sans-serif" letter-spacing="0.08em">NOTICE TIME DISTRIBUTION (${noticeTotalAbsences} absences)</text>
+    <text x="${bML}" y="12" font-size="9" font-weight="700" fill="var(--text-faint)" font-family="-apple-system,sans-serif" letter-spacing="0.08em">NOTICE TIME DISTRIBUTION (${noticeTotalAbsences} absences)</text>
     ${bars}
   </svg>`;
 
@@ -2549,7 +2726,7 @@ function renderInsights() {
       <td class="left">${esc(e.name)}</td>
       <td style="text-align:right;font-variant-numeric:tabular-nums">${e.mins.length || '—'}</td>
       <td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${fmtNotice(e.median)}</td>
-      <td style="text-align:right;font-variant-numeric:tabular-nums;color:#b91c1c;font-weight:${e.uncoveredDrop>0?'600':'400'}">${e.uncoveredDrop || '—'}</td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums;color:var(--danger-fg-strong);font-weight:${e.uncoveredDrop>0?'600':'400'}">${e.uncoveredDrop || '—'}</td>
     </tr>`;
   }).join('');
   document.getElementById('main').innerHTML = `
@@ -2571,19 +2748,19 @@ function renderInsights() {
       <div class="ins-section-title" onclick="toggleInsSection('ins-half')">Half-Semester Attendance Comparison <span class="ins-sub">⚑ = dropped &ge;10 points &nbsp;·&nbsp; click headers to sort</span><span class="ins-chevron">▼</span></div>
       <div class="ins-section-body">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
-          <label style="font-size:11px;font-weight:600;color:#555">Split date:</label>
+          <label style="font-size:11px;font-weight:600;color:var(--text-muted)">Split date:</label>
           <input type="date" id="ins-midpoint-input" value="${midISO}"
             onchange="this.dataset.userSet='1'; renderInsights()"
-            style="font-size:11px;border:1px solid #d1d5db;border-radius:4px;padding:4px 8px;color:#374151">
+            style="font-size:11px;border:1px solid var(--border-strong);border-radius:4px;padding:4px 8px;color:var(--text)">
           <button onclick="
             var el=document.getElementById('ins-midpoint-input');
             el.value='${defaultMidISO}';
             delete el.dataset.userSet;
             renderInsights()"
-            style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">
+            style="font-size:10px;color:var(--text-muted);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">
             Reset to P1 end
           </button>
-          <span style="font-size:11px;color:#9ca3af">${midLabel1} vs ${midLabel2}</span>
+          <span style="font-size:11px;color:var(--text-faint)">${midLabel1} vs ${midLabel2}</span>
         </div>
         <div class="ins-card" style="padding:0">
         <div style="overflow-x:auto">
@@ -2595,7 +2772,7 @@ function renderInsights() {
               <th class="sortable${_hs.col==='delta'?' sorted':''}" style="min-width:80px" onclick="sortInsTable('half','delta')">&Delta; Change</th>
               <th class="sortable${_hs.col==='pctTotal'?' sorted':''}" style="min-width:80px" onclick="sortInsTable('half','pctTotal')">Total</th>
             </tr></thead>
-            <tbody>${hcRows || '<tr><td colspan="5" style="color:#ccc;font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
+            <tbody>${hcRows || '<tr><td colspan="5" style="color:var(--text-faint);font-style:italic;text-align:center;padding:20px">Set a split date above to compare halves</td></tr>'}</tbody>
           </table>
         </div>
         </div>
@@ -2612,7 +2789,7 @@ function renderInsights() {
           ${['missRate','missCount','absCount'].map((m,i) => {
             const labels = ['Miss rate %','Miss count','Absence count'];
             const active = empGridMetric === m;
-            return `<button onclick="setEmpGridMetric('${m}')" style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:4px;border:1px solid ${active?'#1d4ed8':'#d1d5db'};background:${active?'#1d4ed8':'#fff'};color:${active?'#fff':'#374151'};cursor:pointer">${labels[i]}</button>`;
+            return `<button onclick="setEmpGridMetric('${m}')" style="font-size:11px;font-weight:600;padding:4px 12px;border-radius:4px;border:1px solid ${active?'var(--accent)':'var(--border-strong)'};background:${active?'var(--accent)':'var(--surface)'};color:${active?'#fff':'var(--text)'};cursor:pointer">${labels[i]}</button>`;
           }).join('')}
         </div>
         <div class="ins-card" style="padding:10px 12px">${gridHTML}</div>
@@ -2622,10 +2799,10 @@ function renderInsights() {
       <div class="ins-section-title" onclick="toggleInsSection('ins-late')">Lateness <span class="ins-sub">shifts clocked in &gt;${LATE_THRESHOLD_MINUTES}min after scheduled start · timesheets required</span><span class="ins-chevron">▼</span></div>
       <div class="ins-section-body">
         <div class="stats-row cols-4" style="margin-bottom:14px">
-          <div class="stat-card"><div class="val" style="color:#7c3aed">${totalLateShifts}</div><div class="lbl">Total Late Shifts</div></div>
-          <div class="stat-card"><div class="val" style="color:#7c3aed">${latenessRows.length}</div><div class="lbl">Employees with Late Shifts</div></div>
-          <div class="stat-card"><div class="val" style="color:#7c3aed">${fmtMin(medianLateMin)}</div><div class="lbl">Median Lateness</div></div>
-          <div class="stat-card"><div class="val" style="color:#7c3aed">${teamLateRate}%</div><div class="lbl">of Clocked Shifts Late</div></div>
+          <div class="stat-card"><div class="val" style="color:var(--purple-fg)">${totalLateShifts}</div><div class="lbl">Total Late Shifts</div></div>
+          <div class="stat-card"><div class="val" style="color:var(--purple-fg)">${latenessRows.length}</div><div class="lbl">Employees with Late Shifts</div></div>
+          <div class="stat-card"><div class="val" style="color:var(--purple-fg)">${fmtMin(medianLateMin)}</div><div class="lbl">Median Lateness</div></div>
+          <div class="stat-card"><div class="val" style="color:var(--purple-fg)">${teamLateRate}%</div><div class="lbl">of Clocked Shifts Late</div></div>
         </div>
         <div class="ins-card" style="padding:0">
           <div style="overflow-x:auto">
@@ -2638,7 +2815,7 @@ function renderInsights() {
                 <th class="sortable${_ls.col==='maxMin'?' sorted':''}" style="min-width:90px;text-align:right" onclick="sortInsTable('late','maxMin')">Worst Late</th>
                 <th class="sortable${_ls.col==='lateRate'?' sorted':''}" style="min-width:80px;text-align:right" onclick="sortInsTable('late','lateRate')">Late Rate</th>
               </tr></thead>
-              <tbody>${latenessTableRows || '<tr><td colspan="6" style="color:#ccc;font-style:italic;text-align:center;padding:20px">No late shifts recorded — timesheets may not be loaded</td></tr>'}</tbody>
+              <tbody>${latenessTableRows || '<tr><td colspan="6" style="color:var(--text-faint);font-style:italic;text-align:center;padding:20px">No late shifts recorded — timesheets may not be loaded</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -2659,11 +2836,11 @@ function renderInsights() {
               <th class="left sortable${_ns.col==='name'?' sorted':''}" style="min-width:180px" onclick="sortInsTable('notice','name')">Employee</th>
               <th class="sortable${_ns.col==='mins'?' sorted':''}" style="text-align:right" onclick="sortInsTable('notice','mins')">Absences</th>
               <th class="sortable${_ns.col==='median'?' sorted':''}" style="text-align:right" onclick="sortInsTable('notice','median')">Median Notice</th>
-              <th class="sortable${_ns.col==='uncoveredDrop'?' sorted':''}" style="text-align:right;color:#b91c1c" onclick="sortInsTable('notice','uncoveredDrop')">Uncov. Drops</th>
+              <th class="sortable${_ns.col==='uncoveredDrop'?' sorted':''}" style="text-align:right;color:var(--danger-fg-strong)" onclick="sortInsTable('notice','uncoveredDrop')">Uncov. Drops</th>
             </tr></thead>
             <tbody>${noticeTableRows}</tbody>
           </table>
-        </div></div>` : '<div style="font-size:12px;color:#9ca3af;font-style:italic;padding:4px 0">No absence data recorded.</div>'}
+        </div></div>` : '<div style="font-size:12px;color:var(--text-faint);font-style:italic;padding:4px 0">No absence data recorded.</div>'}
       </div>
     </div>
   </div>`;
@@ -2694,8 +2871,8 @@ function renderAttendance() {
     <div class="filter-row">
       <input type="text" placeholder="Search by name…" oninput="attFilter(this.value)">
       <label><input type="checkbox" id="at-risk-checkbox" onchange="attFlagged(this.checked)"> At Risk only (&lt;80%)</label>
-      <label id="strict-drops-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.strictDrops?'#9a3412':'#374151'};padding:3px 8px;border:1px solid ${state.strictDrops?'#fdba74':'#d1d5db'};border-radius:4px;background:${state.strictDrops?'#fff7ed':'#f9fafb'};user-select:none" onclick="toggleStrictDrops()">
-        <span id="strict-drops-indicator" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.strictDrops?'#f97316':'#d1d5db'};flex-shrink:0"></span>
+      <label id="strict-drops-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.strictDrops?'var(--orange-fg)':'var(--text)'};padding:3px 8px;border:1px solid ${state.strictDrops?'var(--orange-border)':'var(--border-strong)'};border-radius:4px;background:${state.strictDrops?'var(--orange-bg)':'var(--surface-hover)'};user-select:none" onclick="toggleStrictDrops()">
+        <span id="strict-drops-indicator" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.strictDrops?'var(--orange-solid)':'var(--border-strong)'};flex-shrink:0"></span>
         <span id="strict-drops-label">${state.strictDrops?'Covered drops: penalized':'Covered drops: not penalized'}</span>
       </label>
       <span class="row-count" id="att-row-count">${total} employees</span>
@@ -2707,15 +2884,15 @@ function renderAttendance() {
       <table>
         <thead>
           <tr class="group-row">
-            <th colspan="2" style="position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+            <th colspan="2" style="position:sticky;left:260px;z-index:13;background:var(--surface-hover)"></th>
             <th colspan="4" class="g-attendance sep-left">Attendance</th>
             <th colspan="2" class="g-absences sep-left">Absences</th>
             <th colspan="4" class="g-drops sep-left">Shift Drops</th>
-            <th colspan="2" class="sep-left" style="color:#7c3aed">Lateness</th>
+            <th colspan="2" class="sep-left" style="color:var(--purple-fg)">Lateness</th>
           </tr>
           <tr class="col-row">
-            <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
-            <th onclick="attSort('name')" style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px;text-align:left">Employee</th>
+            <th style="width:28px;position:sticky;left:260px;z-index:13;background:var(--surface-hover)"></th>
+            <th onclick="attSort('name')" style="position:sticky;left:288px;z-index:13;background:var(--surface-hover);min-width:180px;text-align:left">Employee</th>
             <th class="sep-left" onclick="attSort('total_assigned')">Assigned</th>
             <th onclick="attSort('worked')">Worked</th>
             <th onclick="attSort('no_timeclock')">No Clock-In</th>
@@ -2726,8 +2903,8 @@ function renderAttendance() {
             <th onclick="attSort('covered')">Filled by Someone</th>
             <th onclick="attSort('uncovered')">Left Open</th>
             <th onclick="attSort('picked_up')">Covered for Others</th>
-            <th class="sep-left" onclick="attSort('lateCount')" style="color:#7c3aed">Late Shifts</th>
-            <th onclick="attSort('avgLateMinutes')" style="color:#7c3aed">Avg Late</th>
+            <th class="sep-left" onclick="attSort('lateCount')" style="color:var(--purple-fg)">Late Shifts</th>
+            <th onclick="attSort('avgLateMinutes')" style="color:var(--purple-fg)">Avg Late</th>
           </tr>
         </thead>
         <tbody id="att-tbody"></tbody>
@@ -2857,8 +3034,8 @@ function renderAttRows() {
       ? '<td class="num zero sep-left">—</td><td class="num zero">—</td>'
       : r.lateCount === 0
         ? '<td class="num zero sep-left">—</td><td class="num zero">—</td>'
-        : `<td class="num sep-left" style="color:#7c3aed;font-weight:700">${r.lateCount}</td>`
-          + `<td class="num" style="color:#7c3aed">+${r.avgLateMinutes}m</td>`;
+        : `<td class="num sep-left" style="color:var(--purple-fg);font-weight:700">${r.lateCount}</td>`
+          + `<td class="num" style="color:var(--purple-fg)">+${r.avgLateMinutes}m</td>`;
     return `<tr class="summary-row${flagged?' flagged':''}${isOpen?' open':''}" onclick="toggleAttDetail('${key}')">
       <td class="expand-arrow">${isOpen?'▼':'▶'}</td>
       <td class="name-cell">${esc(r.name)}</td>
@@ -2979,7 +3156,7 @@ function buildAttDetail(key,r) {
       btn   = `<button class="mark-btn" onclick="event.stopPropagation();markWorked('${sKey.replace(/'/g,"\\'")}','${key}')">✓ Mark as Worked</button>`;
     }
     const pfdBadge = isPenaltyFree ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
-    const excBadge = !s.hasClock && isExcused(key, s.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
+    const excBadge = !s.hasClock && isExcused(key, s.date) ? '<span class="di-badge" style="background:var(--cyan-bg);color:var(--cyan-fg)">🛡 Excused</span>' : '';
     const omitBtn = `<button class="omit-btn${isOmitted?' omitted':''}" title="${isOmitted?'Restore shift to counts':'Omit shift from counts'}" onclick="event.stopPropagation();omitShift('${oKey.replace(/'/g,"\\'")}','${key}')">${isOmitted?'↩ Restore':'✕ Omit'}</button>`;
     const absBadge = hasAbsence ? '<span class="absence-overlap-badge">Absence on file</span>' : '';
     // Lateness info — only when timesheet data available
@@ -2987,9 +3164,9 @@ function buildAttDetail(key,r) {
     if (s.hasClock && s.actualClockInMs !== undefined) {
       const actualStr = fmtActualClockIn(s.actualClockInMs);
       const lateInfo  = fmtLateMinutes(s.lateMinutes);
-      const lateColor = lateInfo.type === 'late' ? '#7c3aed' : lateInfo.type === 'early' ? '#16a34a' : '#9ca3af';
-      const lateBg    = lateInfo.type === 'late' ? '#f5f3ff' : lateInfo.type === 'early' ? '#f0fdf4' : 'transparent';
-      lateHtml = `<span style="font-size:10px;color:#9ca3af;margin-left:8px">clocked in ${actualStr}</span>`
+      const lateColor = lateInfo.type === 'late' ? 'var(--purple-fg)' : lateInfo.type === 'early' ? 'var(--success-fg)' : 'var(--text-faint)';
+      const lateBg    = lateInfo.type === 'late' ? 'var(--purple-bg-soft)' : lateInfo.type === 'early' ? 'var(--success-bg-soft)' : 'transparent';
+      lateHtml = `<span style="font-size:10px;color:var(--text-faint);margin-left:8px">clocked in ${actualStr}</span>`
                + `<span style="font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;margin-left:4px;background:${lateBg};color:${lateColor}">${lateInfo.label}</span>`;
     }
     return `<div class="detail-item${hasAbsence&&!isOmitted?' has-absence':''}${isOmitted?' omitted-shift':''}">
@@ -3000,7 +3177,7 @@ function buildAttDetail(key,r) {
   }).join('');
   const absHtml=!absences.length?'<p class="detail-empty">No absences recorded</p>':absences.map(a=>{
     const absPfd = isPFD(a.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
-    const absExc = isExcused(key, a.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
+    const absExc = isExcused(key, a.date) ? '<span class="di-badge" style="background:var(--cyan-bg);color:var(--cyan-fg)">🛡 Excused</span>' : '';
     return `
     <div class="detail-item">
       <div class="di-date">${esc(a.date)} <span class="di-badge ${a.isSelf?'self':'staff'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span>${absPfd}${absExc}</div>
@@ -3013,7 +3190,7 @@ function buildAttDetail(key,r) {
   const shiftHtml=!shifts.length?'<p class="detail-empty">No shift requests</p>':shifts.map(s=>{
     const [bcls,btxt]=s.type==='pickup'?['filled','Covered for Others']:s.type==='swap'?['swap','Swap']:['drop','Drop'];
     const dropPfd = s.type !== 'pickup' && isPFD(s.date) ? '<span class="di-badge pfd">⭐ Penalty-Free</span>' : '';
-    const dropExc = s.type !== 'pickup' && isExcused(key, s.date) ? '<span class="di-badge" style="background:#cffafe;color:#0e7490">🛡 Excused</span>' : '';
+    const dropExc = s.type !== 'pickup' && isExcused(key, s.date) ? '<span class="di-badge" style="background:var(--cyan-bg);color:var(--cyan-fg)">🛡 Excused</span>' : '';
     const tsParts = [
       s.createdAt  ? `Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>` : '',
       s.acceptedAt ? `Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>` : '',
@@ -3114,17 +3291,17 @@ function toggleStrictDrops() {
   const label     = document.getElementById('strict-drops-label');
   const toggle    = document.getElementById('strict-drops-toggle');
   if (state.strictDrops) {
-    indicator.style.background = '#f97316';
+    indicator.style.background = 'var(--orange-solid)';
     label.textContent = 'Covered drops: penalized';
-    toggle.style.background = '#fff7ed';
-    toggle.style.borderColor = '#fdba74';
-    toggle.style.color = '#9a3412';
+    toggle.style.background = 'var(--orange-bg)';
+    toggle.style.borderColor = 'var(--orange-border)';
+    toggle.style.color = 'var(--orange-fg)';
   } else {
-    indicator.style.background = '#d1d5db';
+    indicator.style.background = 'var(--border-strong)';
     label.textContent = 'Covered drops: not penalized';
-    toggle.style.background = '#f9fafb';
-    toggle.style.borderColor = '#d1d5db';
-    toggle.style.color = '#374151';
+    toggle.style.background = 'var(--surface-hover)';
+    toggle.style.borderColor = 'var(--border-strong)';
+    toggle.style.color = 'var(--text)';
   }
   // Re-run analysis preserving the at-risk checkbox state
   if (state.results) {
@@ -3197,7 +3374,7 @@ function toggleAttDetail(key){ const s=state.att.openRows; const wasOpen=s.has(k
 function renderPrepClose() {
   const data = state.prepCloseData;
   if (!data || !data.length) {
-    document.getElementById('main').innerHTML = '<p style="color:#aaa;padding:40px">No prep or closing shift data found.</p>';
+    document.getElementById('main').innerHTML = '<p style="color:var(--text-faint);padding:40px">No prep or closing shift data found.</p>';
     return;
   }
 
@@ -3244,8 +3421,8 @@ function renderPrepClose() {
     <div class="filter-row">
       <input type="text" placeholder="Search by name…" oninput="pcFilterUnified(this.value)">
       <label><input type="checkbox" ${state.pc.showIssuesOnly.prep ? 'checked' : ''} onchange="pcIssuesUnified(this.checked)"> Issues only</label>
-      <label id="adjust-start-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.pc.adjustForStartDate?'#1e40af':'#374151'};padding:3px 8px;border:1px solid ${state.pc.adjustForStartDate?'#93c5fd':'#d1d5db'};border-radius:4px;background:${state.pc.adjustForStartDate?'#eff6ff':'#f9fafb'};user-select:none" onclick="toggleAdjustForStartDate()">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.pc.adjustForStartDate?'#3b82f6':'#d1d5db'};flex-shrink:0"></span>
+      <label id="adjust-start-toggle" style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600;color:${state.pc.adjustForStartDate?'var(--accent-hover)':'var(--text)'};padding:3px 8px;border:1px solid ${state.pc.adjustForStartDate?'var(--accent-disabled-fg)':'var(--border-strong)'};border-radius:4px;background:${state.pc.adjustForStartDate?'var(--accent-bg)':'var(--surface-hover)'};user-select:none" onclick="toggleAdjustForStartDate()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.pc.adjustForStartDate?'var(--accent-soft)':'var(--border-strong)'};flex-shrink:0"></span>
         <span>Adjust for onboarding date</span>
       </label>
       <span class="row-count">${rows.length} employees</span>
@@ -3255,17 +3432,17 @@ function renderPrepClose() {
   <div class="table-wrap"><table>
     <thead>
       <tr class="group-row">
-        <th colspan="2" style="position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
+        <th colspan="2" style="position:sticky;left:260px;z-index:13;background:var(--surface-hover)"></th>
         <th colspan="2" class="g-prep sep-left">Morning Prep</th>
         <th colspan="2" class="g-close sep-left">Closing</th>
       </tr>
       <tr class="col-row">
-        <th style="width:28px;position:sticky;left:260px;z-index:13;background:#f9fafb"></th>
-        <th style="position:sticky;left:288px;z-index:13;background:#f9fafb;min-width:180px;text-align:left">Employee</th>
+        <th style="width:28px;position:sticky;left:260px;z-index:13;background:var(--surface-hover)"></th>
+        <th style="position:sticky;left:288px;z-index:13;background:var(--surface-hover);min-width:180px;text-align:left">Employee</th>
         <th class="sep-left c-attendance">Attendance %</th>
-        <th class="c-attendance">Weekly Credits <span style="font-weight:400;color:#9ca3af;font-size:9px">(days ≥50%)</span></th>
+        <th class="c-attendance">Weekly Credits <span style="font-weight:400;color:var(--text-faint);font-size:9px">(days ≥50%)</span></th>
         <th class="sep-left c-drops">Attendance %</th>
-        <th class="c-drops">Weekly Credits <span style="font-weight:400;color:#9ca3af;font-size:9px">(days ≥50%)</span></th>
+        <th class="c-drops">Weekly Credits <span style="font-weight:400;color:var(--text-faint);font-size:9px">(days ≥50%)</span></th>
       </tr>
     </thead>
     <tbody>${tableRows}</tbody>
@@ -3299,16 +3476,16 @@ function creditSummary(empData) {
 
 function creditCell(cr, hasSide) {
   // hasSide=false: employee has absolutely no P&C shifts (not even drops)
-  if (!hasSide) return '<td class="num zero" style="color:#d1d5db">—</td><td class="num zero" style="color:#d1d5db">—</td>';
+  if (!hasSide) return '<td class="num zero" style="color:var(--border-strong)">—</td><td class="num zero" style="color:var(--border-strong)">—</td>';
   // Has shifts but creditSummary found no data (shouldn't happen, but guard)
-  if (!cr.hasAnyData) return '<td class="num" style="color:#aaa;font-style:italic">N/A</td><td class="num" style="color:#aaa;font-style:italic">N/A</td>';
+  if (!cr.hasAnyData) return '<td class="num" style="color:var(--text-faint);font-style:italic">N/A</td><td class="num" style="color:var(--text-faint);font-style:italic">N/A</td>';
   // Has data — show real attendance % and credits (even if 0/0 recurring commitments)
   const pctHtml = '<span class="' + (cr.pct >= 80 ? 'c-ok' : cr.pct >= 50 ? 'c-warn' : 'c-red') + '" style="font-weight:700">' + cr.pct + '%</span>';
   // If no recurring commitments, credit cell shows "—" credits with a note
   const creditHtml = cr.total === 0
-    ? '<span style="color:#aaa;font-size:11px;font-style:italic">no recurring</span>'
-    : '<span style="font-weight:700;color:' + (cr.credits === cr.total ? '#166534' : cr.credits > 0 ? '#92400e' : '#b91c1c') + '">' + cr.credits + '/' + cr.total + '</span>'
-      + (cr.concerns.length ? '<span style="color:#b91c1c;font-size:10px;margin-left:6px">⚠ ' + cr.concerns.join(', ') + '</span>' : '');
+    ? '<span style="color:var(--text-faint);font-size:11px;font-style:italic">no recurring</span>'
+    : '<span style="font-weight:700;color:' + (cr.credits === cr.total ? 'var(--success-fg-deep)' : cr.credits > 0 ? 'var(--warn-fg)' : 'var(--danger-fg-strong)') + '">' + cr.credits + '/' + cr.total + '</span>'
+      + (cr.concerns.length ? '<span style="color:var(--danger-fg-strong);font-size:10px;margin-left:6px">⚠ ' + cr.concerns.join(', ') + '</span>' : '');
   return '<td class="num">' + pctHtml + '</td><td style="padding:8px 14px;font-size:12px">' + creditHtml + '</td>';
 }
 
@@ -3337,7 +3514,7 @@ function buildPcUnifiedRow(e) {
 function buildPcUnifiedDetail(e) {
   // Employee with no P&C shifts at all
   if (!e.hasPrep && !e.hasClose) {
-    return '<div class="detail-panel" style="margin-left:300px;color:#9ca3af;font-size:12px;font-style:italic;padding:8px 0">'
+    return '<div class="detail-panel" style="margin-left:300px;color:var(--text-faint);font-size:12px;font-style:italic;padding:8px 0">'
       + 'No prep or closing shifts assigned during this period.'
       + '</div>';
   }
@@ -3348,29 +3525,29 @@ function buildPcUnifiedDetail(e) {
     const rows = empData.commitments.map(c => {
       const pctCls = !c.recurring ? '' : c.pctCredit>=80 ? 'c-ok' : c.pctCredit>=50 ? 'c-warn' : 'c-red';
       const pfdNote = c.pfdMissed > 0
-        ? '<span style="font-size:9px;font-weight:600;color:#854d0e;background:#fef9c3;border:1px solid #fde047;border-radius:3px;padding:1px 5px;margin-left:4px">⭐ ' + c.pfdMissed + ' penalty-free</span>'
+        ? '<span style="font-size:9px;font-weight:600;color:var(--pfd-fg);background:var(--pfd-bg);border:1px solid var(--pfd-border);border-radius:3px;padding:1px 5px;margin-left:4px">⭐ ' + c.pfdMissed + ' penalty-free</span>'
         : '';
       const statLabel = c.recurring
         ? '<span class="' + pctCls + '" style="font-weight:700;font-size:11px">' + c.pctCredit + '%</span>'
-          + '<span style="color:#aaa;font-size:10px;margin-left:3px">' + c.worked + '/' + c.available + '</span>'
-          + (c.total < c.available ? '<span style="color:#d1d5db;font-size:9px;margin-left:3px">(' + c.total + ' records)</span>' : '')
+          + '<span style="color:var(--text-faint);font-size:10px;margin-left:3px">' + c.worked + '/' + c.available + '</span>'
+          + (c.total < c.available ? '<span style="color:var(--border-strong);font-size:9px;margin-left:3px">(' + c.total + ' records)</span>' : '')
           + pfdNote
-        : '<span style="color:#aaa;font-size:10px">not recurring</span>'
-          + '<span style="color:#ccc;font-size:9px;margin-left:4px">(' + c.total + '/' + (c.available || '?') + ' wks)</span>'
+        : '<span style="color:var(--text-faint);font-size:10px">not recurring</span>'
+          + '<span style="color:var(--text-faint);font-size:9px;margin-left:4px">(' + c.total + '/' + (c.available || '?') + ' wks)</span>'
           + pfdNote;
       const shiftLines = c.shifts.map(s => {
-        const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock ? '#16a34a' : '#dc2626') + ';margin-right:4px;vertical-align:middle"></span>';
-        const nc   = !s.hasClock && !s.fromDrop ? '<span style="color:#dc2626;font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
-        const drop = s.fromDrop && !s.hasClock   ? '<span style="color:#b91c1c;font-size:9px;font-weight:700;margin-left:3px;background:#fee2e2;padding:1px 4px;border-radius:2px">DROPPED</span>' : '';
-        const pfd  = !s.hasClock && isPFD(s.date) ? '<span style="font-size:9px;font-weight:600;color:#854d0e;background:#fef9c3;border:1px solid #fde047;border-radius:3px;padding:1px 4px;margin-left:3px">⭐ Penalty-Free</span>' : '';
+        const dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + (s.hasClock ? 'var(--success-fg)' : 'var(--danger-fg)') + ';margin-right:4px;vertical-align:middle"></span>';
+        const nc   = !s.hasClock && !s.fromDrop ? '<span style="color:var(--danger-fg);font-size:9px;font-weight:700;margin-left:3px">NO CLOCK-IN</span>' : '';
+        const drop = s.fromDrop && !s.hasClock   ? '<span style="color:var(--danger-fg-strong);font-size:9px;font-weight:700;margin-left:3px;background:var(--danger-bg);padding:1px 4px;border-radius:2px">DROPPED</span>' : '';
+        const pfd  = !s.hasClock && isPFD(s.date) ? '<span style="font-size:9px;font-weight:600;color:var(--pfd-fg);background:var(--pfd-bg);border:1px solid var(--pfd-border);border-radius:3px;padding:1px 4px;margin-left:3px">⭐ Penalty-Free</span>' : '';
         return '<div style="line-height:1.6;white-space:nowrap">' + dot
-          + '<span style="color:#374151;font-size:11px">' + esc(s.date) + '</span>'
+          + '<span style="color:var(--text);font-size:11px">' + esc(s.date) + '</span>'
           + nc + drop + pfd + '</div>';
       }).join('');
       // Dim the dow label for non-recurring days
-      const dowColor = c.recurring ? '#111' : '#bbb';
+      const dowColor = c.recurring ? 'var(--text-strong)' : 'var(--text-faint)';
       const dowLabel = '<span style="font-weight:700;font-size:11px;color:' + dowColor + '">' + c.dow.slice(0,3) + '</span>';
-      return '<tr style="vertical-align:top;border-bottom:1px solid #f4f4f4;opacity:' + (c.recurring ? '1' : '0.6') + '">'
+      return '<tr style="vertical-align:top;border-bottom:1px solid var(--border);opacity:' + (c.recurring ? '1' : '0.6') + '">'
         + '<td style="padding:3px 8px 3px 0;white-space:nowrap">' + dowLabel + '</td>'
         + '<td style="padding:3px 8px;white-space:nowrap">' + statLabel + '</td>'
         + '<td style="padding:3px 0">' + shiftLines + '</td>'
@@ -3380,7 +3557,7 @@ function buildPcUnifiedDetail(e) {
       + '<div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:' + colorCls + ';margin-bottom:4px">' + label + '</div>'
       + '<table style="border-collapse:collapse;font-size:11px"><tbody>' + rows + '</tbody></table>'
       + (empData.extraWorked > 0
-          ? '<div style="margin-top:6px;font-size:10px;color:#6b7280;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:5px 8px;line-height:1.5;white-space:normal;max-width:320px">'
+          ? '<div style="margin-top:6px;font-size:10px;color:var(--text-muted);background:var(--surface-hover);border:1px solid var(--border);border-radius:4px;padding:5px 8px;line-height:1.5;white-space:normal;max-width:320px">'
             + '＋ <strong>' + empData.extraWorked + ' extra shift' + (empData.extraWorked !== 1 ? 's' : '') + '</strong> worked on non-recurring days '
             + 'count toward this bucket\'s overall credit. The overall % above reflects all shifts worked, not just the recurring day totals shown.'
             + '</div>'
@@ -3388,11 +3565,11 @@ function buildPcUnifiedDetail(e) {
       + '</div>';
   }
 
-  const prepHtml  = sectionHtml('Morning Prep', '#7c3aed', e.hasPrep  ? e.prep  : null);
-  const closeHtml = sectionHtml('Closing',      '#0369a1', e.hasClose ? e.close : null);
+  const prepHtml  = sectionHtml('Morning Prep', 'var(--purple-fg)', e.hasPrep  ? e.prep  : null);
+  const closeHtml = sectionHtml('Closing',      'var(--sky-fg)', e.hasClose ? e.close : null);
   if (!prepHtml && !closeHtml) {
     // Has P&C flag set (from drops) but all days are non-recurring — show a note
-    return '<div class="detail-panel" style="margin-left:300px;color:#9ca3af;font-size:12px;font-style:italic;padding:8px 0">'
+    return '<div class="detail-panel" style="margin-left:300px;color:var(--text-faint);font-size:12px;font-style:italic;padding:8px 0">'
       + 'Shifts present but no recurring commitments identified for this period.'
       + '</div>';
   }
@@ -3400,8 +3577,8 @@ function buildPcUnifiedDetail(e) {
   // closing sits under the Closing header, matching the main table column split.
   // Empty placeholder divs keep the grid aligned when only one bucket has data.
   return '<div class="detail-panel" style="display:grid;grid-template-columns:1fr 1fr;margin-left:300px">'
-    + '<div style="padding:10px 16px 10px 0;border-right:1px solid #e5e7eb">' + (prepHtml || '') + '</div>'
-    + '<div style="padding:10px 0 10px 16px;background:#f0f9ff">' + (closeHtml || '') + '</div>'
+    + '<div style="padding:10px 16px 10px 0;border-right:1px solid var(--border)">' + (prepHtml || '') + '</div>'
+    + '<div style="padding:10px 0 10px 16px;background:var(--sky-bg)">' + (closeHtml || '') + '</div>'
     + '</div>';
 }
 
@@ -3494,9 +3671,9 @@ function populateWorkerDropdown() {
   list.innerHTML = sorted.map(r => {
     const key = normName(r.name);
     const risk = r.pct !== null && r.pct < 80;
-    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f9fafb" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--surface-hover)" onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background=''">
       <span style="font-weight:600">${esc(r.name)}</span>
-      ${risk ? '<span style="font-size:10px;background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:#16a34a;font-weight:600">'+r.pct+'%</span>' : '')}
+      ${risk ? '<span style="font-size:10px;background:var(--danger-bg);color:var(--danger-fg-strong);padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:var(--success-fg);font-weight:600">'+r.pct+'%</span>' : '')}
     </div>`;
   }).join('');
 }
@@ -3529,15 +3706,15 @@ function filterWorkerDropdown(q) {
   const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
   const filtered = lq ? sorted.filter(r => r.name.toLowerCase().includes(lq)) : sorted;
   if (!filtered.length) {
-    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:#9ca3af">No matches</div>';
+    list.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-faint)">No matches</div>';
     return;
   }
   list.innerHTML = filtered.map(r => {
     const key = normName(r.name);
     const risk = r.pct !== null && r.pct < 80;
-    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f9fafb" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+    return `<div onclick="exportWorkerPDF('${key.replace(/'/g,"\\'")}');toggleWorkerDropdown()" style="padding:7px 12px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--surface-hover)" onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background=''">
       <span style="font-weight:600">${esc(r.name)}</span>
-      ${risk ? '<span style="font-size:10px;background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:#16a34a;font-weight:600">'+r.pct+'%</span>' : '')}
+      ${risk ? '<span style="font-size:10px;background:var(--danger-bg);color:var(--danger-fg-strong);padding:1px 5px;border-radius:3px;font-weight:700">AT RISK</span>' : (r.pct !== null ? '<span style="font-size:10px;color:var(--success-fg);font-weight:600">'+r.pct+'%</span>' : '')}
     </div>`;
   }).join('');
 }
@@ -4065,9 +4242,9 @@ function autoCorrectAfterTimesheetLoad() {
     const btn = document.getElementById('correct-btn');
     if (btn) {
       btn.innerHTML = 'Clock Fixes Auto-Applied (' + count + ')';
-      btn.style.background = '#dbeafe';
-      btn.style.borderColor = '#60a5fa';
-      btn.style.color = '#1e40af';
+      btn.style.background = 'var(--info-bg)';
+      btn.style.borderColor = 'var(--accent-soft)';
+      btn.style.color = 'var(--accent-hover)';
     }
   }
 }
@@ -4163,9 +4340,9 @@ function correctDiscrepancies() {
     const btn = document.getElementById('correct-btn');
     if (btn) {
       btn.innerHTML = 'Clock Fixes Applied (' + state.autocorrections.size + ')';
-      btn.style.background = '#dbeafe';
-      btn.style.borderColor = '#60a5fa';
-      btn.style.color = '#1e40af';
+      btn.style.background = 'var(--info-bg)';
+      btn.style.borderColor = 'var(--accent-soft)';
+      btn.style.color = 'var(--accent-hover)';
     }
     alert(`Auto-corrected ${count} shift${count===1?'':'s'} across ${newCorrections.size} employee${newCorrections.size===1?'':'s'}.`);
   } else {
@@ -4208,9 +4385,9 @@ function undoAllCorrections() {
   const btn = document.getElementById('correct-btn');
   if (btn) {
     btn.innerHTML = 'Apply Clock Fixes';
-    btn.style.background = '#eff6ff';
-    btn.style.borderColor = '#93c5fd';
-    btn.style.color = '#1d4ed8';
+    btn.style.background = 'var(--accent-bg)';
+    btn.style.borderColor = 'var(--accent-disabled-fg)';
+    btn.style.color = 'var(--accent)';
   }
 }
 
@@ -4249,15 +4426,15 @@ function renderClosuresSidebar() {
   const infEl = document.getElementById('inferred-closures-list');
   if (infEl) {
     if (!state.results) {
-      infEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">Run analyze to detect</div>';
+      infEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">Run analyze to detect</div>';
     } else if (inferred.length === 0) {
-      infEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None detected</div>';
+      infEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None detected</div>';
     } else {
       infEl.innerHTML = inferred.map(d => {
         const isOverridden = state.manualClosures.has(d); // can't remove inferred, only manual
-        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--text)">
           <span>📅 ${fmtClosureDate(d)}</span>
-          <span style="font-size:9px;color:#9ca3af;background:#f3f4f6;padding:1px 5px;border-radius:3px">auto</span>
+          <span style="font-size:9px;color:var(--text-faint);background:var(--surface-hover-2);padding:1px 5px;border-radius:3px">auto</span>
         </div>`;
       }).join('');
     }
@@ -4267,12 +4444,12 @@ function renderClosuresSidebar() {
   const manEl = document.getElementById('manual-closures-list');
   if (manEl) {
     if (manual.length === 0) {
-      manEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+      manEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>';
     } else {
       manEl.innerHTML = manual.map(d => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--text)">
           <span>📅 ${fmtClosureDate(d)}</span>
-          <button onclick="removeManualClosure('${d}')" style="font-size:10px;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
+          <button onclick="removeManualClosure('${d}')" style="font-size:10px;color:var(--text-faint);background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
         </div>`).join('');
     }
   }
@@ -4410,7 +4587,7 @@ function renderExcusedSidebar() {
   }
   if (!listEl) return;
   if (n === 0) {
-    listEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+    listEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>';
     return;
   }
   const items = state.excused
@@ -4418,13 +4595,13 @@ function renderExcusedSidebar() {
     .sort((a, b) => a.e.name.localeCompare(b.e.name) || a.e.from.localeCompare(b.e.from));
   listEl.innerHTML = items.map(({ e, i }) => {
     const range = e.from === e.to ? _isoShort(e.from) : `${_isoShort(e.from)} – ${_isoShort(e.to)}`;
-    const note  = e.note ? `<div style="font-size:10px;color:#9ca3af;font-style:italic">${esc(e.note)}</div>` : '';
-    return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:1px solid #f3f4f6">
+    const note  = e.note ? `<div style="font-size:10px;color:var(--text-faint);font-style:italic">${esc(e.note)}</div>` : '';
+    return `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;padding:5px 0;border-bottom:1px solid var(--surface-hover-2)">
       <div style="min-width:0">
-        <div style="font-size:11px;font-weight:600;color:#374151">${esc(e.name)}</div>
-        <div style="font-size:10px;color:#6b7280">${range}</div>${note}
+        <div style="font-size:11px;font-weight:600;color:var(--text)">${esc(e.name)}</div>
+        <div style="font-size:10px;color:var(--text-muted)">${range}</div>${note}
       </div>
-      <button onclick="removeExcusedRange(${i})" title="Remove" style="flex-shrink:0;border:none;background:none;color:#9ca3af;cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
+      <button onclick="removeExcusedRange(${i})" title="Remove" style="flex-shrink:0;border:none;background:none;color:var(--text-faint);cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
     </div>`;
   }).join('');
 }
@@ -4503,7 +4680,7 @@ function renderPenaltyFreeSidebar() {
   const listEl = document.getElementById('pfd-list');
   if (!listEl) return;
   if (days.length === 0) {
-    listEl.innerHTML = '<div style="font-size:11px;color:#d1d5db;font-style:italic">None added</div>';
+    listEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>';
     return;
   }
 
@@ -4530,9 +4707,9 @@ function renderPenaltyFreeSidebar() {
     const removeCall = start === end
       ? `removePenaltyFreeDay('${start}')`
       : `removePenaltyFreeRange('${start}','${end}')`;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:#374151">
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;color:var(--text)">
       <span>${label}</span>
-      <button onclick="${removeCall}" style="font-size:10px;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
+      <button onclick="${removeCall}" style="font-size:10px;color:var(--text-faint);background:none;border:none;cursor:pointer;padding:2px 4px;line-height:1" title="Remove">✕</button>
     </div>`;
   }).join('');
 }
@@ -5622,13 +5799,13 @@ function openGitHubPushModal() {
     const email = fromUsers || fromSaved || guessEmail(r.name);
     const role = state.userMap && state.userMap[key] ? state.userMap[key].role : 'assistant';
     const roleBadge = role === 'manager'
-      ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:#dbeafe;color:#1d4ed8;margin-left:4px">MGR</span>'
+      ? '<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--info-bg);color:var(--accent);margin-left:4px">MGR</span>'
       : '';
     return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-      <span style="font-size:11px;font-weight:600;color:#374151;min-width:130px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.name)}">${esc(r.name)}${roleBadge}</span>
+      <span style="font-size:11px;font-weight:600;color:var(--text);min-width:130px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.name)}">${esc(r.name)}${roleBadge}</span>
       <input type="email" data-key="${esc(key)}" data-role="${role}" value="${esc(email)}"
         placeholder="email@berklee.edu"
-        style="flex:1;border:1px solid #d1d5db;border-radius:4px;padding:4px 7px;font-size:11px;color:#374151;min-width:0">
+        style="flex:1;border:1px solid var(--border-strong);border-radius:4px;padding:4px 7px;font-size:11px;color:var(--text);min-width:0">
     </div>`;
   }).join('');
 
@@ -6037,17 +6214,17 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
       const lateInfo  = fmtLateMinutes(s.lateMinutes);
       const lColor = lateInfo.type === 'late' ? '#7c3aed' : lateInfo.type === 'early' ? '#15803d' : '#9ca3af';
       const lBg    = lateInfo.type === 'late' ? '#f5f3ff' : 'transparent';
-      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;font-size:12px">
-        <span style="color:#9ca3af">${actualStr}</span>
+      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid var(--surface-hover-2);white-space:nowrap;font-size:12px">
+        <span style="color:var(--text-faint)">${actualStr}</span>
         <span style="margin-left:8px;font-weight:600;font-size:11px;padding:1px 6px;border-radius:3px;background:${lBg};color:${lColor}">${lateInfo.label}</span>
       </td>`;
     } else {
-      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;color:#d1d5db;font-size:12px">—</td>`;
+      lateCell = `<td style="padding:8px 12px;border-bottom:1px solid var(--surface-hover-2);color:var(--border-strong);font-size:12px">—</td>`;
     }
     return `<tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap">${esc(s.date)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6;white-space:nowrap;color:#6b7280">${esc(s.time)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #f3f4f6">
+      <td style="padding:8px 12px;border-bottom:1px solid var(--surface-hover-2);white-space:nowrap">${esc(s.date)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid var(--surface-hover-2);white-space:nowrap;color:var(--text-muted)">${esc(s.time)}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid var(--surface-hover-2)">
         <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:${statusBg};color:${statusColor}">${statusTxt}</span>
       </td>
       ${lateCell}
@@ -6055,24 +6232,24 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
   }).join('');
 
   const absRows = detail.absences.length === 0
-    ? '<p style="color:#aaa;font-style:italic;font-size:13px">No absences recorded.</p>'
-    : detail.absences.map(a => `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;margin-bottom:8px">
+    ? '<p style="color:var(--text-faint);font-style:italic;font-size:13px">No absences recorded.</p>'
+    : detail.absences.map(a => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:8px">
         <div style="font-weight:600;margin-bottom:4px">${esc(a.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${a.isSelf?'#f3f4f6':'#fef3c7'};color:${a.isSelf?'#374151':'#92400e'}">${a.isSelf?'Self-Reported':'Staff-Marked'}</span></div>
-        <div style="color:#6b7280;font-size:12px">${esc(a.time)}</div>
-        ${a.reportedAt?`<div style="font-size:12px;color:#555;margin-top:3px">Reported: <strong>${esc(fmtTimestamp(a.reportedAt))}</strong>${a.notice?` · ${esc(a.notice)} notice`:''}</div>`:(a.notice?`<div style="font-size:12px;color:#555;margin-top:3px">${esc(a.notice)} notice</div>`:'')}
-        ${a.note ? `<div style="font-style:italic;color:#555;font-size:12px;margin-top:4px">${esc(a.note)}</div>` : ''}
+        <div style="color:var(--text-muted);font-size:12px">${esc(a.time)}</div>
+        ${a.reportedAt?`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">Reported: <strong>${esc(fmtTimestamp(a.reportedAt))}</strong>${a.notice?` · ${esc(a.notice)} notice`:''}</div>`:(a.notice?`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">${esc(a.notice)} notice</div>`:'')}
+        ${a.note ? `<div style="font-style:italic;color:var(--text-muted);font-size:12px;margin-top:4px">${esc(a.note)}</div>` : ''}
       </div>`).join('');
 
   const reqRows = detail.shifts.length === 0
-    ? '<p style="color:#aaa;font-style:italic;font-size:13px">No shift requests.</p>'
+    ? '<p style="color:var(--text-faint);font-style:italic;font-size:13px">No shift requests.</p>'
     : detail.shifts.map(s => {
         const [bg,color,label] = s.type==='pickup'?['#dcfce7','#15803d','Covered for Others']:s.type==='swap'?['#e0e7ff','#3730a3','Swap']:['#fee2e2','#b91c1c','Drop'];
-        return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;margin-bottom:8px">
-          <div style="font-weight:600;margin-bottom:4px">${esc(s.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${bg};color:${color}">${label}</span> <span style="color:#9ca3af;font-size:11px">${esc(s.status)}</span></div>
-          <div style="color:#6b7280;font-size:12px">${esc(s.time)}</div>
-          ${s.acceptedBy?`<div style="font-size:12px;color:#555;margin-top:3px">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
-          ${s.coveredFor?`<div style="font-size:12px;color:#555;margin-top:3px">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
-          ${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).length?`<div style="font-size:12px;color:#555;margin-top:3px">${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).join(' · ')}</div>`:''}
+        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:8px">
+          <div style="font-weight:600;margin-bottom:4px">${esc(s.date)} <span style="font-size:11px;font-weight:600;padding:1px 6px;border-radius:3px;background:${bg};color:${color}">${label}</span> <span style="color:var(--text-faint);font-size:11px">${esc(s.status)}</span></div>
+          <div style="color:var(--text-muted);font-size:12px">${esc(s.time)}</div>
+          ${s.acceptedBy?`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">Covered by: <strong>${esc(s.acceptedBy)}</strong></div>`:''}
+          ${s.coveredFor?`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">Covered for: <strong>${esc(s.coveredFor)}</strong></div>`:''}
+          ${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).length?`<div style="font-size:12px;color:var(--text-muted);margin-top:3px">${[s.createdAt?`Requested: <strong>${esc(fmtTimestamp(s.createdAt))}</strong>`:'',s.acceptedAt?`Picked up: <strong>${esc(fmtTimestamp(s.acceptedAt))}</strong>`:'',s.decidedAt?`Decided: <strong>${esc(fmtTimestamp(s.decidedAt))}</strong>`:''].filter(Boolean).join(' · ')}</div>`:''}
         </div>`;
       }).join('');
 
@@ -6088,21 +6265,21 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
       const rows = empData.commitments.map(c => {
         const pctCls = !c.recurring ? '#9ca3af' : c.pctCredit >= 80 ? '#16a34a' : c.pctCredit >= 50 ? '#d97706' : '#dc2626';
         const statLabel = c.recurring
-          ? `<span style="font-weight:700;color:${pctCls}">${c.pctCredit}%</span> <span style="color:#9ca3af;font-size:11px">${c.worked}/${c.available} slots</span>`
-          : `<span style="color:#9ca3af;font-size:11px">not recurring (${c.total}/${c.available} wks)</span>`;
+          ? `<span style="font-weight:700;color:${pctCls}">${c.pctCredit}%</span> <span style="color:var(--text-faint);font-size:11px">${c.worked}/${c.available} slots</span>`
+          : `<span style="color:var(--text-faint);font-size:11px">not recurring (${c.total}/${c.available} wks)</span>`;
         const dots = c.shifts.map(s => {
           const dotColor = s.hasClock ? '#16a34a' : '#dc2626';
           const badge = !s.hasClock ? (s.fromDrop
-            ? '<span style="font-size:10px;font-weight:600;color:#b91c1c;background:#fee2e2;padding:1px 5px;border-radius:3px;margin-left:4px">DROPPED</span>'
-            : '<span style="font-size:10px;font-weight:600;color:#92400e;margin-left:4px">NO CLOCK-IN</span>')
+            ? '<span style="font-size:10px;font-weight:600;color:var(--danger-fg-strong);background:var(--danger-bg);padding:1px 5px;border-radius:3px;margin-left:4px">DROPPED</span>'
+            : '<span style="font-size:10px;font-weight:600;color:var(--warn-fg);margin-left:4px">NO CLOCK-IN</span>')
             : '';
-          return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:#374151">
+          return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:var(--text)">
             <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>
             ${esc(s.date)}${badge}
           </div>`;
         }).join('');
-        return `<tr style="vertical-align:top;border-bottom:1px solid #f3f4f6">
-          <td style="padding:8px 12px 8px 0;white-space:nowrap;font-weight:600;font-size:13px">${c.dow.slice(0,3)}${!c.recurring?'<span style="font-weight:400;color:#d1d5db;font-size:10px"> *</span>':''}</td>
+        return `<tr style="vertical-align:top;border-bottom:1px solid var(--surface-hover-2)">
+          <td style="padding:8px 12px 8px 0;white-space:nowrap;font-weight:600;font-size:13px">${c.dow.slice(0,3)}${!c.recurring?'<span style="font-weight:400;color:var(--border-strong);font-size:10px"> *</span>':''}</td>
           <td style="padding:8px 16px 8px 0;white-space:nowrap">${statLabel}</td>
           <td style="padding:8px 0">${dots}</td>
         </tr>`;
@@ -6110,7 +6287,7 @@ function generateWorkerSnapshot(nameKey, result, periodTag) {
       return `<div style="margin-bottom:20px">
         <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${color};margin-bottom:8px">${label}</div>
         <table style="width:100%;border-collapse:collapse"><tbody>${rows}</tbody></table>
-        ${empData.commitments.some(c => !c.recurring) ? '<p style="font-size:11px;color:#d1d5db;margin-top:6px">* Not recurring — below consistency threshold for this period</p>' : ''}
+        ${empData.commitments.some(c => !c.recurring) ? '<p style="font-size:11px;color:var(--border-strong);margin-top:6px">* Not recurring — below consistency threshold for this period</p>' : ''}
       </div>`;
     };
     const prepSection  = pcData.hasPrep  ? renderPCBucket('Morning Prep',  '#7c3aed', pcData.prep)  : '';
@@ -6199,32 +6376,32 @@ ${pcHtml}
 
 <!-- GitHub Push Modal -->
 <div id="github-push-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:8px;padding:28px 32px;max-width:560px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+  <div style="background:var(--surface);border-radius:8px;padding:28px 32px;max-width:560px;width:90%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 style="font-size:16px;font-weight:700;color:#111">🚀 Push Worker Files to GitHub</h2>
-      <button onclick="closeGitHubPushModal()" style="background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer;padding:0 4px">✕</button>
+      <h2 style="font-size:16px;font-weight:700;color:var(--text-strong)">🚀 Push Worker Files to GitHub</h2>
+      <button onclick="closeGitHubPushModal()" style="background:none;border:none;font-size:18px;color:var(--text-faint);cursor:pointer;padding:0 4px">✕</button>
     </div>
 
     <div style="margin-bottom:16px">
-      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;display:block;margin-bottom:8px">Worker Emails — confirm or correct before pushing</label>
-      <div id="gh-email-rows" style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px"></div>
+      <label style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);display:block;margin-bottom:8px">Worker Emails — confirm or correct before pushing</label>
+      <div id="gh-email-rows" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:10px 12px"></div>
     </div>
 
     <div id="gh-progress-wrap" style="display:none;margin-bottom:10px">
-      <div style="background:#e5e7eb;border-radius:999px;height:10px;overflow:hidden">
-        <div id="gh-progress-bar" style="height:100%;width:0%;background:#166534;border-radius:999px;transition:width .3s ease;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700"></div>
+      <div style="background:var(--border);border-radius:999px;height:10px;overflow:hidden">
+        <div id="gh-progress-bar" style="height:100%;width:0%;background:var(--success-fg-deep);border-radius:999px;transition:width .3s ease;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700"></div>
       </div>
     </div>
 
-    <div id="gh-push-status" style="font-size:12px;color:#6b7280;min-height:18px;margin-bottom:12px"></div>
+    <div id="gh-push-status" style="font-size:12px;color:var(--text-muted);min-height:18px;margin-bottom:12px"></div>
 
     <div style="display:flex;gap:8px">
       <button id="gh-push-btn" onclick="executePushToGitHub()"
-        style="flex:1;background:#166534;color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">
+        style="flex:1;background:var(--success-fg-deep);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">
         🚀 Push All Worker Files
       </button>
       <button onclick="closeGitHubPushModal()"
-        style="padding:10px 16px;background:#fff;border:1px solid #d1d5db;border-radius:6px;font-size:13px;color:#374151;cursor:pointer">
+        style="padding:10px 16px;background:var(--surface);border:1px solid var(--border-strong);border-radius:6px;font-size:13px;color:var(--text);cursor:pointer">
         Cancel
       </button>
     </div>
