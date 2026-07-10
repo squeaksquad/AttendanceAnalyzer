@@ -949,6 +949,23 @@ document.addEventListener('drop', e => {
   if (unmatched.length) alert(`Could not auto-detect report type for:\n${unmatched.join('\n')}\n\nDrag it onto the specific upload zone instead.`);
 });
 
+// ── Esc collapses the expanded detail row in the current view ─────────────────
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const ae = document.activeElement;
+  if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) { ae.blur(); return; }
+  const modal = document.getElementById('github-push-modal');
+  if (modal && modal.style.display === 'flex') return; // don't collapse rows behind the modal
+  if (state.mode === 'attendance' && state.att.openRows.size) {
+    state.att.openRows.clear();
+    renderAttRows();
+    requestAnimationFrame(updateStickyOffsets);
+  } else if (state.mode === 'prepclosing' && state.pc.openRows.size) {
+    state.pc.openRows.clear();
+    renderPrepClose();
+  }
+});
+
 // ── Individual zone drag handlers (still work for single-zone drops) ──────────
 function dragOver(e,id){e.preventDefault();document.getElementById(id).classList.add('drag-over')}
 function dragLeave(id){document.getElementById(id).classList.remove('drag-over')}
