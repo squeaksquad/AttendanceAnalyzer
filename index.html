@@ -1267,6 +1267,7 @@ function onDateFilterChange() {
   else if (from && !to) { lbl.textContent = 'From ' + from; }
   else if (!from && to) { lbl.textContent = 'Until ' + to; }
   else { lbl.textContent = from + ' → ' + to; }
+  renderExcusedSidebar(); // list only shows entries in the active range
   // Re-analyze if data is loaded
   if (!document.getElementById('run-btn').disabled) analyze();
 }
@@ -4580,19 +4581,33 @@ function populateExcusedWorkerOptions() {
 function renderExcusedSidebar() {
   const badge  = document.getElementById('excused-count-badge');
   const listEl = document.getElementById('excused-list');
-  const n = state.excused.length;
+  const total = state.excused.length;
+  // Only list entries overlapping the active analysis range; all entries still
+  // apply to scoring regardless (isExcusedISO checks the full set).
+  const fromEl  = document.getElementById('filter-date-from');
+  const toEl    = document.getElementById('filter-date-to');
+  const fromStr = fromEl && fromEl.value || '';
+  const toStr   = toEl && toEl.value || '';
+  const items = state.excused
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => (!toStr || e.from <= toStr) && (!fromStr || e.to >= fromStr))
+    .sort((a, b) => a.e.name.localeCompare(b.e.name) || a.e.from.localeCompare(b.e.from));
+  const n = items.length;
+  const hidden = total - n;
   if (badge) {
-    badge.textContent = n + (n === 1 ? ' entry' : ' entries');
-    badge.style.display = n > 0 ? '' : 'none';
+    badge.textContent = hidden > 0 ? `${n} of ${total}` : n + (n === 1 ? ' entry' : ' entries');
+    badge.style.display = total > 0 ? '' : 'none';
   }
   if (!listEl) return;
   if (n === 0) {
-    listEl.innerHTML = '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>';
+    listEl.innerHTML = hidden > 0
+      ? `<div style="font-size:11px;color:var(--border-strong);font-style:italic">None in the current analysis range (${hidden} outside it)</div>`
+      : '<div style="font-size:11px;color:var(--border-strong);font-style:italic">None added</div>';
     return;
   }
-  const items = state.excused
-    .map((e, i) => ({ e, i }))
-    .sort((a, b) => a.e.name.localeCompare(b.e.name) || a.e.from.localeCompare(b.e.from));
+  const hiddenNote = hidden > 0
+    ? `<div style="font-size:10px;color:var(--text-faint);font-style:italic;padding-top:5px">${hidden} more outside the current analysis range</div>`
+    : '';
   listEl.innerHTML = items.map(({ e, i }) => {
     const range = e.from === e.to ? _isoShort(e.from) : `${_isoShort(e.from)} – ${_isoShort(e.to)}`;
     const note  = e.note ? `<div style="font-size:10px;color:var(--text-faint);font-style:italic">${esc(e.note)}</div>` : '';
@@ -4603,7 +4618,7 @@ function renderExcusedSidebar() {
       </div>
       <button onclick="removeExcusedRange(${i})" title="Remove" style="flex-shrink:0;border:none;background:none;color:var(--text-faint);cursor:pointer;font-size:14px;line-height:1;padding:0 2px">×</button>
     </div>`;
-  }).join('');
+  }).join('') + hiddenNote;
 }
 
 // ── Penalty-Free Days ─────────────────────────────────────────────────────────
