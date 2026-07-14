@@ -4887,12 +4887,17 @@ document.documentElement.style.scrollPaddingTop = totalFixed + 'px';
 window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   renderExcusedSidebar(); renderPenaltyFreeSidebar(); restoreUploadSectionState();
-  applyLiveDateLimits(); prefillPeriodsFromSemester();
-  // embed=1 (set by the Assistant Scheduler's embedded card) auto-pulls live data
-  // on open; a direct visit to analyzer.bryandimaio.com stays upload-first.
-  if (new URLSearchParams(location.search).get('embed') === '1') loadLiveData();
+  applyLiveDateLimits();
+
+  // A normal Analyzer visit always starts with the current live scheduler data.
+  // Uploads and saved snapshots remain available as explicit manual replacements.
+  // Exported HTML snapshots carry their own bootstrap data and must stay frozen.
+  if (!document.getElementById('snapshot-data-bootstrap')) {
+    await prefillPeriodsFromSemester();
+    await loadLiveData();
+  }
 });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
@@ -5342,10 +5347,10 @@ function syncPeriod2Start() {
   if (p2from && p1to) p2from.value = ymdAddDays(p1to, 1);
 }
 
-// Best-effort: pre-fill the period inputs from the active semester, split into
-// halves (the user's first-half vs second-half comparison), and offer to pull
-// both right away (once per browser session). Skips if the user already typed a
-// range, or if the live endpoint isn't reachable (e.g. local).
+// Best-effort: pre-fill the optional period-comparison inputs from the active
+// semester, split into halves. Loading either comparison period remains a
+// manual action; normal startup loads the complete live semester separately.
+// Skips if the user already typed a range or the live endpoint is unreachable.
 async function prefillPeriodsFromSemester() {
   if (!analyzerWorkerReady()) return;
   const anyFilled = ['p1-from','p1-to','p2-from','p2-to']
@@ -5369,16 +5374,6 @@ async function prefillPeriodsFromSemester() {
   syncPeriod2Start(); // p2-from = day after p1-to
   const hint = document.getElementById('live-periods-hint');
   if (hint) { hint.textContent = sem.name + ' · pre-split through ' + cappedEnd; hint.style.display = 'block'; }
-
-  // Offer to load both halves now — once per session so reloads don't nag.
-  let asked = false;
-  try { asked = sessionStorage.getItem('analyzerAutoloadAsked') === '1'; } catch (e) {}
-  if (asked) return;
-  try { sessionStorage.setItem('analyzerAutoloadAsked', '1'); } catch (e) {}
-  const ok = confirm(`Load ${sem.name} now?\n\nPeriod 1: ${h.p1.from} → ${h.p1.to}\nPeriod 2: ${h.p2.from} → ${h.p2.to}\n\nPulls live scheduler data through ${cappedEnd}. Today is excluded.`);
-  if (!ok) return;
-  await setPeriodFromLive('1');
-  await setPeriodFromLive('2');
 }
 
 async function deleteAnalyzerSnapshot(name) {
