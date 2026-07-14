@@ -5450,6 +5450,10 @@ function restoreSnapshotData(d) {
   }
 
   const pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+  // The payload is authoritative. A reload rebuilds detailMap from raw rows, so
+  // retaining keys from the previous load would make the reapply step below
+  // incorrectly skip those freshly rebuilt rows.
+  state.overrides = new Set(pendingOverrides);
   const clockOverrideSet = new Set(d.clockOverrides || []);
 
   // ── 3. Set date filter inputs ──
@@ -5546,18 +5550,15 @@ function restoreSnapshotData(d) {
   }
 
   // ── 8. Re-apply manual overrides ──
-  if (pendingOverrides.length && typeof markWorked === 'function') {
+  if (pendingOverrides.length) {
     pendingOverrides.forEach(sKey => {
       const parts = sKey.split('|');
       if (parts.length >= 2) {
         const nameKey = parts[0];
-        if (!state.overrides.has(sKey)) {
-          state.overrides.add(sKey);
-          const d2 = state.detailMap[nameKey];
-          if (d2) {
-            const entry = d2.clockin.find(s => sKey === (nameKey + '|' + s.date + '|' + s.time));
-            if (entry) entry.hasClock = true;
-          }
+        const d2 = state.detailMap[nameKey];
+        if (d2) {
+          const entry = d2.clockin.find(s => sKey === (nameKey + '|' + s.date + '|' + s.time));
+          if (entry) entry.hasClock = true;
         }
       }
     });
@@ -5628,6 +5629,7 @@ function exportSnapshot() {
     }
     // Restore manual clock-in overrides — applied after analyze() re-derives state
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+    state.overrides = new Set(pendingOverrides);
     // clockOverrides: flat set of "nameKey|date|time" for all hasClock=true shifts
     // at export time (includes autocorrections). Applied after analyze() below.
     var clockOverrideSet = new Set(d.clockOverrides || []);
@@ -5718,18 +5720,15 @@ function exportSnapshot() {
       if (typeof renderAttRows === 'function') renderAttRows();
     }
     // Re-apply manual overrides after analyze (which resets detailMap from raw data)
-    if (pendingOverrides.length && typeof markWorked === 'function') {
+    if (pendingOverrides.length) {
       pendingOverrides.forEach(function(sKey) {
         var parts = sKey.split('|');
         if (parts.length >= 2) {
           var nameKey = parts[0];
-          if (!state.overrides.has(sKey)) {
-            state.overrides.add(sKey);
-            var d2 = state.detailMap[nameKey];
-            if (d2) {
-              var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
-              if (entry) entry.hasClock = true;
-            }
+          var d2 = state.detailMap[nameKey];
+          if (d2) {
+            var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
+            if (entry) entry.hasClock = true;
           }
         }
       });
@@ -6120,6 +6119,7 @@ function generateFullManagerSnapshot(periodTag) {
       if (typeof renderExcusedSidebar === 'function') renderExcusedSidebar();
     }
     var pendingOverrides = (d.overrides && d.overrides.length) ? d.overrides : [];
+    state.overrides = new Set(pendingOverrides);
     var clockOverrideSet = new Set(d.clockOverrides || []);
     var fromEl = document.getElementById('filter-date-from');
     var toEl   = document.getElementById('filter-date-to');
@@ -6179,18 +6179,15 @@ function generateFullManagerSnapshot(periodTag) {
         );
       }
     }
-    if (pendingOverrides.length && typeof markWorked === 'function') {
+    if (pendingOverrides.length) {
       pendingOverrides.forEach(function(sKey) {
         var parts = sKey.split('|');
         if (parts.length >= 2) {
           var nameKey = parts[0];
-          if (!state.overrides.has(sKey)) {
-            state.overrides.add(sKey);
-            var d2 = state.detailMap[nameKey];
-            if (d2) {
-              var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
-              if (entry) entry.hasClock = true;
-            }
+          var d2 = state.detailMap[nameKey];
+          if (d2) {
+            var entry = d2.clockin.find(function(s) { return sKey === (nameKey + '|' + s.date + '|' + s.time); });
+            if (entry) entry.hasClock = true;
           }
         }
       });
