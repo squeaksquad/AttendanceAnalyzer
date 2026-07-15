@@ -545,7 +545,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
     <path d="M584.35,105.75c0-35.04,26.25-60.14,57.82-60.14,33.31,0,57.83,26.48,57.83,57.48,0,5.32-.23,9.71-1.04,13.88h-82.34c3.47,14.92,14.34,22.9,26.6,22.9,11.22,0,18.39-5.55,22.43-13.76h31.8c-6.01,20.93-25.33,39.78-54.59,39.78-31.92,0-58.52-24.75-58.52-60.14ZM667.39,93.84v-.23c0-10.29-9.95-22.2-25.1-22.2-12.61,0-22.09,8.21-25.44,22.44h50.54Z"/>
   </svg>
   <h1>Attendance Analyzer</h1>
-  <span>Studio Operations</span>
+  <span id="department-label">Department</span>
   <span class="date-range-pill" id="date-range-pill"></span>
   <div class="mode-tabs">
     <button class="mode-tab active" onclick="setMode('attendance')" id="tab-att">Attendance</button>
@@ -835,7 +835,7 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
   <div class="main" id="main">
     <div class="empty-state">
       <div class="big">📂</div>
-      <p>Load live Studio Operations data or upload reports to begin</p>
+      <p>Load live department data or upload reports to begin</p>
       <p class="sub">Local files stay in your browser</p>
     </div>
   </div>
@@ -4888,20 +4888,30 @@ window.addEventListener('resize', updateStickyOffsets);
 
 // Render pre-populated penalty-free days on page load
 document.addEventListener('DOMContentLoaded', async () => {
-  renderExcusedSidebar(); renderPenaltyFreeSidebar(); restoreUploadSectionState();
+  renderExcusedSidebar(); renderPenaltyFreeSidebar();
   applyLiveDateLimits();
 
   // A normal Analyzer visit always starts with the current live scheduler data.
   // Uploads and saved snapshots remain available as explicit manual replacements.
   // Exported HTML snapshots carry their own bootstrap data and must stay frozen.
-  if (!document.getElementById('snapshot-data-bootstrap')) {
-    await prefillPeriodsFromSemester();
-    await loadLiveData();
+  if (document.getElementById('snapshot-data-bootstrap')) return;
+
+  try {
+    await bootstrapAnalyzerDepartment();
+  } catch (e) {
+    const main = document.getElementById('main');
+    if (main) main.innerHTML = `<div class="empty-state"><div class="big">⚠</div><p>Attendance Analyzer access could not be verified.</p><p class="sub">${esc(e.message || String(e))}</p></div>`;
+    return;
   }
+  restoreUploadSectionState();
+  await prefillPeriodsFromSemester();
+  await loadLiveData();
+  window.setInterval(checkAnalyzerDepartmentContext, 10000);
 });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
 const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
+let analyzerDepartment = null;
 let _snapshots = [];
 let _snapLoading = false;
 
@@ -4909,10 +4919,113 @@ function analyzerWorkerReady() {
   return ANALYZER_WORKER_URL && !ANALYZER_WORKER_URL.includes('YOUR-SUBDOMAIN');
 }
 
+function requestedAnalyzerDepartmentId() {
+  const raw = new URLSearchParams(location.search).get('department');
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function analyzerStorageKey(name) {
+  if (!analyzerDepartment) throw new Error('Department context is not ready');
+  return `analyzer:d${analyzerDepartment.id}:${name}`;
+}
+
+function isStudioDepartment() {
+  return analyzerDepartment && Number(analyzerDepartment.id) === 1;
+}
+
+async function fetchAnalyzerContext(departmentId) {
+  const headers = {};
+  if (departmentId) headers['X-Sched-Department'] = String(departmentId);
+  const res = await fetch(`${ANALYZER_WORKER_URL}/analyzer/context`, {
+    headers,
+    credentials: 'include',
+    cache: 'no-store'
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const error = new Error(`${res.status}: ${t}`);
+    error.status = res.status;
+    throw error;
+  }
+  const data = await res.json();
+  const id = Number(data && data.department && data.department.id);
+  if (!Number.isInteger(id) || id <= 0 || !data.department.name) {
+    throw new Error('The Scheduler returned an invalid department context');
+  }
+  return data;
+}
+
+function applyAnalyzerDepartment(context) {
+  analyzerDepartment = {
+    id: Number(context.department.id),
+    name: String(context.department.name),
+    shortLabel: context.department.shortLabel || null,
+    rosterSource: context.department.rosterSource || null,
+    accessMode: context.accessMode || 'normal',
+    role: context.role || null
+  };
+  const label = document.getElementById('department-label');
+  if (label) label.textContent = analyzerDepartment.shortLabel || analyzerDepartment.name;
+
+  const url = new URL(location.href);
+  url.searchParams.set('department', String(analyzerDepartment.id));
+  history.replaceState(null, '', url);
+
+  // The legacy Worker Portal publisher writes a single Studio-specific roster
+  // and snapshot. Keep it available only in Studio until that destination is
+  // itself department-aware.
+  const publish = document.getElementById('github-push-btn');
+  if (publish && !isStudioDepartment()) {
+    publish.hidden = true;
+    publish.disabled = true;
+    publish.title = 'Worker Portal publishing is currently available only for Studio Operations';
+  }
+}
+
+async function bootstrapAnalyzerDepartment() {
+  if (!analyzerWorkerReady()) throw new Error('Worker URL not configured');
+  const requested = requestedAnalyzerDepartmentId();
+  let context;
+  try {
+    context = await fetchAnalyzerContext(requested);
+  } catch (e) {
+    // A bookmarked or already-open Analyzer URL can lag behind a Scheduler
+    // department switch. The no-header retry asks the server for its HttpOnly
+    // cookie-selected context; the client never gets to authorize itself.
+    if (!requested || e.status !== 409) throw e;
+    context = await fetchAnalyzerContext(null);
+  }
+  applyAnalyzerDepartment(context);
+}
+
+let _departmentContextCheckInFlight = false;
+async function checkAnalyzerDepartmentContext() {
+  if (!analyzerDepartment || _departmentContextCheckInFlight || document.hidden) return;
+  _departmentContextCheckInFlight = true;
+  try {
+    const context = await fetchAnalyzerContext(null);
+    if (Number(context.department.id) !== Number(analyzerDepartment.id)) {
+      const url = new URL(location.href);
+      url.searchParams.set('department', String(context.department.id));
+      location.replace(url.toString());
+    }
+  } catch (e) {
+    // A transient network or auth failure should not discard the current work.
+    console.warn('Department context refresh failed:', e);
+  } finally {
+    _departmentContextCheckInFlight = false;
+  }
+}
+
 async function analyzerApiCall(method, path, body) {
+  if (!analyzerDepartment) throw new Error('Department context is not ready');
   const res = await fetch(`${ANALYZER_WORKER_URL}/analyzer${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Sched-Department': String(analyzerDepartment.id)
+    },
     credentials: 'include',
     body: body ? JSON.stringify(body) : undefined
   });
@@ -4920,7 +5033,15 @@ async function analyzerApiCall(method, path, body) {
     const t = await res.text();
     throw new Error(`${res.status}: ${t}`);
   }
-  return res.json();
+  const data = await res.json();
+  const responseDepartmentId = Number(
+    (data && data.department && data.department.id) ||
+    (data && data._meta && data._meta.departmentId) || 0
+  );
+  if (responseDepartmentId && responseDepartmentId !== Number(analyzerDepartment.id)) {
+    throw new Error('The response belongs to a different department');
+  }
+  return data;
 }
 
 /** Build the canonical snapshot data object from current app state. */
@@ -4931,6 +5052,7 @@ function buildSnapshotData() {
   const toStr   = (toEl   && toEl.value)   ? toEl.value   : '';
 
   return {
+    department: analyzerDepartment ? { id: analyzerDepartment.id, name: analyzerDepartment.name } : null,
     absences:  state.absences  || [],
     clockin:   state.clockin   || [],
     shifts:    state.shifts    || [],
@@ -5179,11 +5301,19 @@ function toggleUploadSection() {
   if (!label || !body) return;
   const collapsed = body.classList.toggle('collapsed');
   label.classList.toggle('collapsed', collapsed);
-  try { localStorage.setItem('analyzerUploadCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  try { localStorage.setItem(analyzerStorageKey('uploadCollapsed'), collapsed ? '1' : '0'); } catch (e) {}
 }
 function restoreUploadSectionState() {
   let collapsed = false;
-  try { collapsed = localStorage.getItem('analyzerUploadCollapsed') === '1'; } catch (e) {}
+  try {
+    const key = analyzerStorageKey('uploadCollapsed');
+    let value = localStorage.getItem(key);
+    if (value === null && isStudioDepartment()) {
+      value = localStorage.getItem('analyzerUploadCollapsed');
+      if (value !== null) localStorage.setItem(key, value);
+    }
+    collapsed = value === '1';
+  } catch (e) {}
   if (!collapsed) return;
   const label = document.getElementById('upload-section-label');
   const body  = document.getElementById('upload-section-body');
@@ -5833,16 +5963,36 @@ function exportReport() {
 // PAT is held server-side in the Cloudflare Worker. Only a push secret lives here.
 const PUSH_WORKER_URL  = 'https://github-push-worker.bryan-dimaio.workers.dev'; // ← set after deploying worker
 const PUSH_SECRET      = '6eeee075da251edd59eeaf62d63bd5b79b1f905d1782bb25fd3f92d70d3f7242';                  // ← match PUSH_SECRET env var in Worker
-const WORKER_EMAILS_KEY = 'studio_worker_emails';
+
+function workerEmailsStorageKey() {
+  return analyzerStorageKey('workerEmails');
+}
+
+function savedWorkerEmailMap() {
+  try {
+    const key = workerEmailsStorageKey();
+    let value = localStorage.getItem(key);
+    if (value === null && isStudioDepartment()) {
+      value = localStorage.getItem('studio_worker_emails');
+      if (value !== null) localStorage.setItem(key, value);
+    }
+    return JSON.parse(value || '{}');
+  } catch (e) {
+    return {};
+  }
+}
 
 function openGitHubPushModal() {
+  if (!isStudioDepartment()) {
+    alert('Worker Portal publishing is currently available only for Studio Operations.');
+    return;
+  }
   if (!state.results || !state.results.length) return;
   const modal = document.getElementById('github-push-modal');
   if (!modal) return;
 
   // Build email map: priority = Users report → localStorage → guessed
-  let savedEmailMap = {};
-  try { savedEmailMap = JSON.parse(localStorage.getItem(WORKER_EMAILS_KEY) || '{}'); } catch(e) {}
+  const savedEmailMap = savedWorkerEmailMap();
 
   const sorted = [...state.results].sort((a,b) => a.name.localeCompare(b.name));
   const container = document.getElementById('gh-email-rows');
@@ -5896,6 +6046,10 @@ function closeGitHubPushModal() {
 }
 
 async function executePushToGitHub() {
+  if (!isStudioDepartment()) {
+    alert('Worker Portal publishing is currently available only for Studio Operations.');
+    return;
+  }
   // Collect email map and roles
   const emailMap = {};
   const roleMap  = {};
@@ -5905,7 +6059,7 @@ async function executePushToGitHub() {
     const role  = inp.dataset.role || 'assistant';
     if (key && email) { emailMap[key] = email; roleMap[email] = role; }
   });
-  localStorage.setItem(WORKER_EMAILS_KEY, JSON.stringify(emailMap));
+  localStorage.setItem(workerEmailsStorageKey(), JSON.stringify(emailMap));
 
   const statusEl = document.getElementById('gh-push-status');
   const btn = document.getElementById('gh-push-btn');
