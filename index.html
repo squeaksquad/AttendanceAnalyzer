@@ -2960,8 +2960,38 @@ function renderAttendance() {
 }
 
 // ── Manual clock-in overrides ────────────────────────────────────────────────
-function markWorked(shiftKey, nameKey) {
+const pendingOverrideMutations = new Set();
+
+function overridePayload(shiftKey) {
+  const parts = String(shiftKey || '').split('|');
+  if (parts.length !== 3 || parts.some(part => !part.trim())) {
+    throw new Error('Invalid attendance override key');
+  }
+  return { nameKey: parts[0], date: parts[1], time: parts[2] };
+}
+
+async function persistOverride(shiftKey, markAsWorked) {
+  if (pendingOverrideMutations.has(shiftKey)) return false;
+  pendingOverrideMutations.add(shiftKey);
+  try {
+    const method = markAsWorked ? 'POST' : 'DELETE';
+    await analyzerApiCall(method, '/edits/overrides', overridePayload(shiftKey));
+    return true;
+  } catch (e) {
+    console.error('Attendance override persistence failed:', e);
+    alert(markAsWorked
+      ? 'Could not save this attendance override. The analysis was not changed.'
+      : 'Could not remove this attendance override. The analysis was not changed.');
+    return false;
+  } finally {
+    pendingOverrideMutations.delete(shiftKey);
+  }
+}
+
+async function markWorked(shiftKey, nameKey) {
   const already = state.overrides.has(shiftKey);
+  if (!(await persistOverride(shiftKey, already ? false : true))) return;
+
   if (already) state.overrides.delete(shiftKey);
   else         state.overrides.add(shiftKey);
 
@@ -2974,26 +3004,17 @@ function markWorked(shiftKey, nameKey) {
   recomputeEmployee(nameKey);
   renderAttRows();
   refreshAttStats();
-
-  // shiftKey is "nameKey|date|time" — persist the toggle to D1.
-  const [k, date, time] = shiftKey.split('|');
-  const payload = { nameKey: k, date, time };
-  const call = already
-    ? analyzerApiCall('DELETE', '/edits/overrides', payload)
-    : analyzerApiCall('POST', '/edits/overrides', payload);
-  call.catch(e => console.warn('Override save failed (kept locally):', e));
 }
 
 // ── Shift omissions (exclude from counts + history) ───────────────────────────
-function omitShift(shiftKey, nameKey) {
+async function omitShift(shiftKey, nameKey) {
   const already = state.omissions.has(shiftKey);
-  if (already) state.omissions.delete(shiftKey);
-  else         state.omissions.add(shiftKey);
 
   // If omitting, also undo any manual override on this shift.
   // oKey format is "nameKey|date|time|site"; overrides use "nameKey|date|time"
   const overrideKey = shiftKey.split('|').slice(0, 3).join('|');
   if (!already && state.overrides.has(overrideKey)) {
+    if (!(await persistOverride(overrideKey, false))) return;
     state.overrides.delete(overrideKey);
     const d = state.detailMap[nameKey];
     if (d) {
@@ -3001,6 +3022,9 @@ function omitShift(shiftKey, nameKey) {
       if (entry) entry.hasClock = false;
     }
   }
+
+  if (already) state.omissions.delete(shiftKey);
+  else         state.omissions.add(shiftKey);
 
   recomputeEmployee(nameKey);
   renderAttRows();
