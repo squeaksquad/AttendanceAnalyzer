@@ -1487,6 +1487,47 @@ function _analyzeInner() {
   }
 }
 
+function parseClockinPeriods(periods, normalizeAssignee = lastFirstToFirstLast) {
+  const assignees = [];
+  const shifts = [];
+
+  // A workbook may start with an unassigned/open group whose Assignee Name is
+  // blank. Assignee state must never carry across workbook boundaries, or those
+  // leading open rows inherit the final employee from the previous workbook.
+  for (const periodRows of periods || []) {
+    let curName = null, curTC = false;
+
+    for (const row of periodRows || []) {
+      const rawName = row['Assignee Name'];
+      const tc = row['Has Timeclock Entry'];
+      const hasDate = row['Start Date'] != null;
+
+      if (rawName != null && String(rawName).trim() !== '') {
+        curName = normalizeAssignee(rawName);
+        curTC = false;
+        if (curName) assignees.push(curName);
+      }
+
+      const tcStr = tc !== undefined && tc !== null ? String(tc).trim().toLowerCase() : null;
+      if ((tcStr === 'true' || tcStr === 'false') && !hasDate) {
+        curTC = (tcStr === 'true');
+      }
+
+      // Rows in the workbook's leading blank group are open/unassigned. Skip
+      // them until an explicit assignee header establishes ownership.
+      if (!hasDate || !curName) continue;
+
+      let hasClock = curTC;
+      if (tcStr === 'true' || tcStr === 'false') {
+        hasClock = (tcStr === 'true');
+      }
+      shifts.push({ row, name: curName, hasClock });
+    }
+  }
+
+  return { assignees, shifts };
+}
+
 function buildResults() {
   // Date filter bounds — computed once for this analysis run
   const { fromMs, toMs } = getDateFilterMs();
@@ -1510,7 +1551,8 @@ function buildResults() {
 
   // Merge period 2 data into period 1 if present
   const mergedAbsences = [...(state.absences||[]), ...(state.absences2||[])];
-  const mergedClockin  = [...(state.clockin||[]),  ...(state.clockin2||[])];
+  const clockinPeriods = [state.clockin||[], state.clockin2||[]];
+  const mergedClockin  = clockinPeriods.flat();
   const mergedShifts   = [...(state.shifts||[]),   ...(state.shifts2||[])];
 
   // Temporarily swap state arrays so the rest of buildResults works unchanged
@@ -1534,67 +1576,49 @@ function buildResults() {
 
   // ── Shifts Worked ──
   {
-    let curName=null, curTC=false;
-    
-    for (const row of state.clockin) {
-      const rawName=row['Assignee Name'];
-      const tc=row['Has Timeclock Entry'];
-      const hasDate=row['Start Date']!=null;
+    const parsedClockin = parseClockinPeriods(clockinPeriods);
+    for (const assignee of parsedClockin.assignees) get(assignee);
 
-      if (rawName != null && String(rawName).trim() !== '') {
-        curName=lastFirstToFirstLast(rawName);
-        curTC=false;
-        get(curName);
-      }
-      
-      const tcStr = tc !== undefined && tc !== null ? String(tc).trim().toLowerCase() : null;
-      if ((tcStr === 'true' || tcStr === 'false') && !hasDate) {
-        curTC = (tcStr === 'true');
-      }
-      
-      if (hasDate && curName) {
-        const e = get(curName); if(!e) continue;
+    for (const parsedShift of parsedClockin.shifts) {
+      const row = parsedShift.row;
+      const curName = parsedShift.name;
+      const hasClock = parsedShift.hasClock;
+      const e = get(curName); if(!e) continue;
+
+      const dateVal = row['Start Date'];
+      if (!dateInRange(dateVal)) continue; // ← date filter
+      const dateStr = fmtDate(dateVal);
+      const startT = row['Start Time'] || dateVal;
+      const endT = row['End Time'];
         
-        let hasClock = curTC;
-        if (tcStr === 'true' || tcStr === 'false') {
-          hasClock = (tcStr === 'true');
-        }
+      const _hm = parseUniversal(startT);
+      const startH = _hm ? _hm.h : null;
+      const startM = _hm ? _hm.m : null;
+      const dow = _hm ? _hm.dow : '';
 
-        const dateVal = row['Start Date'];
-        if (!dateInRange(dateVal)) continue; // ← date filter
-        const dateStr = fmtDate(dateVal);
-        const startT = row['Start Time'] || dateVal;
-        const endT = row['End Time'];
-        
-        const _hm = parseUniversal(startT);
-        const startH = _hm ? _hm.h : null;
-        const startM = _hm ? _hm.m : null;
-        const dow = _hm ? _hm.dow : '';
+      const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
 
-        const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
+      detail[normName(curName)].clockin.push({
+        date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
+        site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
+      });
 
-        detail[normName(curName)].clockin.push({
-          date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
-          site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
-        });
+      rawShifts.push({
+        name:curName, nameKey:normName(curName),
+        date:dateStr, dateVal, dow, rawDate: _hm,
+        startH: startH !== null ? startH : -1,
+        startM: startM !== null ? startM : -1,
+        hasClock, site:row['Job Site Name']||'',
+        position:row['Position Name']||'',
+        notes:row['Shift Notes']||'',
+        length:row['sum(Length)']||0,
+        time:timeRange,
+        createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
+                 : row['Created At'] ? new Date(row['Created At']).getTime() : 0
+      });
 
-        rawShifts.push({
-          name:curName, nameKey:normName(curName),
-          date:dateStr, dateVal, dow, rawDate: _hm,
-          startH: startH !== null ? startH : -1,
-          startM: startM !== null ? startM : -1,
-          hasClock, site:row['Job Site Name']||'',
-          position:row['Position Name']||'',
-          notes:row['Shift Notes']||'',
-          length:row['sum(Length)']||0,
-          time:timeRange,
-          createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
-                   : row['Created At'] ? new Date(row['Created At']).getTime() : 0
-        });
-
-        e.assigned++;
-        if(!hasClock) e.no_timeclock++;
-      }
+      e.assigned++;
+      if(!hasClock) e.no_timeclock++;
     }
   }
 
