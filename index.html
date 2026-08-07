@@ -4953,6 +4953,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('snapshot-data-bootstrap')) return;
 
   try {
+    await establishAnalyzerAuth();
     await bootstrapAnalyzerDepartment();
   } catch (e) {
     const main = document.getElementById('main');
@@ -4978,6 +4979,211 @@ const SUMMER_SNAPSHOT_DEFAULT_THROUGH = '2026-09-02';
 function analyzerWorkerReady() {
   return ANALYZER_WORKER_URL && !ANALYZER_WORKER_URL.includes('YOUR-SUBDOMAIN');
 }
+
+// ── Analyzer dual-client authentication BEGIN ────────────────────────────────
+// Short-lived bearer assertion delivered by exact-origin/source/nonce postMessage
+// (embedded) or a one-time URL-fragment handoff (full page), with in-memory-only
+// renewal and the existing session-cookie path as fallback when neither is
+// present. See AssistantScheduler IMPROVEMENT_ROLLOUT_PLAN.md Release 4F-b.
+const ANALYZER_AUTH_REQUEST_TYPE = 'analyzer-auth-request';
+const ANALYZER_AUTH_REPLY_TYPE = 'analyzer-auth-response';
+const ANALYZER_OPAQUE_VALUE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const ANALYZER_ASSERTION_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+const ANALYZER_RENEWAL_LEAD_MS = 30 * 1000;
+const ANALYZER_HANDSHAKE_TIMEOUT_MS = 2000;
+
+function parseAnalyzerHandoffFragment(hash) {
+  if (typeof hash !== 'string' || hash.slice(0, 9) !== '#handoff=') return null;
+  let code;
+  try { code = decodeURIComponent(hash.slice(9)); } catch (e) { return null; }
+  return ANALYZER_OPAQUE_VALUE_PATTERN.test(code) ? code : null;
+}
+
+function isValidAnalyzerAssertionPayload(payload) {
+  return !!payload && typeof payload === 'object' &&
+    typeof payload.assertion === 'string' && payload.assertion.length <= 4096 &&
+    ANALYZER_ASSERTION_PATTERN.test(payload.assertion) &&
+    Number.isFinite(payload.expires_at) && payload.expires_at > 0 &&
+    Number.isInteger(payload.department_id) && payload.department_id > 0;
+}
+
+function isValidAnalyzerRenewalPayload(payload) {
+  return isValidAnalyzerAssertionPayload(payload) &&
+    typeof payload.renewal === 'string' && ANALYZER_OPAQUE_VALUE_PATTERN.test(payload.renewal) &&
+    Number.isFinite(payload.renewal_expires_at) && payload.renewal_expires_at > 0;
+}
+
+function isValidAnalyzerAuthReply(event, expectedOrigin, expectedSource, expectedNonce) {
+  if (!event || event.origin !== expectedOrigin || event.source !== expectedSource) return false;
+  if (typeof expectedNonce !== 'string' || !expectedNonce) return false;
+  const data = event.data;
+  if (!data || typeof data !== 'object' || data.type !== ANALYZER_AUTH_REPLY_TYPE) return false;
+  if (data.nonce !== expectedNonce) return false;
+  return isValidAnalyzerAssertionPayload(data.payload);
+}
+
+function analyzerBearerRequestInit(assertion, init) {
+  const headers = Object.assign({}, init && init.headers, { Authorization: `Bearer ${assertion}` });
+  return Object.assign({}, init, { headers, credentials: 'omit' });
+}
+
+function isAnalyzerAssertionUsable(state, now) {
+  return !!state && typeof state.expiresAt === 'number' && state.expiresAt > now;
+}
+
+function isAnalyzerRenewalUsable(state, now) {
+  return !!state && typeof state.absoluteExpiresAt === 'number' && state.absoluteExpiresAt > now;
+}
+
+function analyzerAuthNonce() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+let analyzerAssertionState = null; // { token, expiresAt, departmentId } — memory only, never persisted
+let analyzerRenewalState = null;   // { token, absoluteExpiresAt } — memory only, never persisted
+let analyzerAuthMode = 'cookie';   // 'cookie' | 'assertion'
+let analyzerRenewalTimer = null;
+
+function isAnalyzerEmbedded() {
+  try { return window.parent !== window; } catch (e) { return true; }
+}
+
+function clearAnalyzerAssertionState() {
+  if (analyzerRenewalTimer) { clearTimeout(analyzerRenewalTimer); analyzerRenewalTimer = null; }
+  analyzerAssertionState = null;
+  analyzerRenewalState = null;
+  analyzerAuthMode = 'cookie';
+}
+
+function scheduleAnalyzerRenewal() {
+  if (analyzerRenewalTimer) { clearTimeout(analyzerRenewalTimer); analyzerRenewalTimer = null; }
+  const now = Date.now();
+  if (!analyzerAssertionState || !isAnalyzerRenewalUsable(analyzerRenewalState, now)) return;
+  const delay = Math.max(0, analyzerAssertionState.expiresAt - ANALYZER_RENEWAL_LEAD_MS - now);
+  analyzerRenewalTimer = setTimeout(renewAnalyzerAssertion, delay);
+}
+
+function applyAnalyzerAssertion(payload) {
+  analyzerAssertionState = {
+    token: payload.assertion,
+    expiresAt: Number(payload.expires_at),
+    departmentId: Number(payload.department_id),
+  };
+  analyzerAuthMode = 'assertion';
+  if (typeof payload.renewal === 'string') {
+    analyzerRenewalState = {
+      token: payload.renewal,
+      absoluteExpiresAt: Number(payload.renewal_expires_at),
+    };
+  }
+  scheduleAnalyzerRenewal();
+}
+
+async function exchangeAnalyzerGrant(path, field, value) {
+  try {
+    const res = await fetch(`${ANALYZER_WORKER_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify({ [field]: value }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return isValidAnalyzerRenewalPayload(data) ? data : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function renewAnalyzerAssertion() {
+  if (!analyzerRenewalState || !isAnalyzerRenewalUsable(analyzerRenewalState, Date.now())) {
+    clearAnalyzerAssertionState();
+    return;
+  }
+  const data = await exchangeAnalyzerGrant('/analyzer/auth/renew', 'renewal', analyzerRenewalState.token);
+  if (!data) { clearAnalyzerAssertionState(); return; }
+  applyAnalyzerAssertion(data);
+}
+
+async function tryAnalyzerHandoffExchange() {
+  const code = parseAnalyzerHandoffFragment(location.hash);
+  if (!code) return false;
+  // Strip the one-time code before the exchange resolves, so a copied link,
+  // bookmark, or reload can never resubmit it.
+  history.replaceState(null, '', location.pathname + location.search);
+  const data = await exchangeAnalyzerGrant('/analyzer/auth/exchange', 'code', code);
+  if (!data) return false;
+  applyAnalyzerAssertion(data);
+  return true;
+}
+
+function tryAnalyzerEmbeddedHandshake(timeoutMs) {
+  return new Promise((resolve) => {
+    if (!isAnalyzerEmbedded() || !analyzerWorkerReady()) return resolve(false);
+    let expectedOrigin;
+    try { expectedOrigin = new URL(ANALYZER_WORKER_URL).origin; } catch (e) { return resolve(false); }
+    const expectedSource = window.parent;
+    const nonce = analyzerAuthNonce();
+    let settled = false;
+    let timer = null;
+    function onMessage(event) {
+      if (settled || !isValidAnalyzerAuthReply(event, expectedOrigin, expectedSource, nonce)) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      clearTimeout(timer);
+      applyAnalyzerAssertion(event.data.payload);
+      resolve(true);
+    }
+    window.addEventListener('message', onMessage);
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      resolve(false);
+    }, timeoutMs);
+    try {
+      expectedSource.postMessage({ type: ANALYZER_AUTH_REQUEST_TYPE, nonce }, expectedOrigin);
+    } catch (e) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(false);
+    }
+  });
+}
+
+// Tries the one-time handoff first, then an embedded parent handshake. Until
+// Release 4F-c updates the Scheduler launcher to answer it, the handshake
+// simply times out and every embedded load keeps using the cookie path below.
+async function establishAnalyzerAuth() {
+  if (await tryAnalyzerHandoffExchange()) return;
+  await tryAnalyzerEmbeddedHandshake(ANALYZER_HANDSHAKE_TIMEOUT_MS);
+}
+
+function analyzerRequestInit(init) {
+  if (analyzerAuthMode === 'assertion' && isAnalyzerAssertionUsable(analyzerAssertionState, Date.now())) {
+    return analyzerBearerRequestInit(analyzerAssertionState.token, init);
+  }
+  return Object.assign({}, init, { credentials: 'include' });
+}
+
+async function analyzerAuthenticatedFetch(url, init) {
+  const usingAssertion = analyzerAuthMode === 'assertion' &&
+    isAnalyzerAssertionUsable(analyzerAssertionState, Date.now());
+  const res = await fetch(url, analyzerRequestInit(init));
+  if (!usingAssertion || (res.status !== 401 && res.status !== 403)) return res;
+  // The assertion may have just expired or the underlying department access
+  // been revoked; a successful renewal re-resolves current access before we
+  // give up and fall back to the cookie path for this and later requests.
+  await renewAnalyzerAssertion();
+  return fetch(url, analyzerRequestInit(init));
+}
+// ── Analyzer dual-client authentication END ──────────────────────────────────
 
 function requestedAnalyzerDepartmentId() {
   const raw = new URLSearchParams(location.search).get('department');
@@ -5010,9 +5216,8 @@ function applyAnalyzerPermissions() {
 async function fetchAnalyzerContext(departmentId) {
   const headers = {};
   if (departmentId) headers['X-Sched-Department'] = String(departmentId);
-  const res = await fetch(`${ANALYZER_WORKER_URL}/analyzer/context`, {
+  const res = await analyzerAuthenticatedFetch(`${ANALYZER_WORKER_URL}/analyzer/context`, {
     headers,
-    credentials: 'include',
     cache: 'no-store'
   });
   if (!res.ok) {
@@ -5080,6 +5285,9 @@ async function bootstrapAnalyzerDepartment() {
 let _departmentContextCheckInFlight = false;
 async function checkAnalyzerDepartmentContext() {
   if (!analyzerDepartment || _departmentContextCheckInFlight || document.hidden) return;
+  // A bearer assertion is scoped to one department for its whole lifetime;
+  // re-selecting one under an active assertion arrives with Release 4F-c.
+  if (analyzerAuthMode === 'assertion') return;
   _departmentContextCheckInFlight = true;
   try {
     const context = await fetchAnalyzerContext(null);
@@ -5101,13 +5309,12 @@ async function analyzerApiCall(method, path, body) {
   if (!['GET', 'HEAD'].includes(String(method).toUpperCase()) && !canEditAttendance()) {
     throw new Error('Attendance changes require manager or director access');
   }
-  const res = await fetch(`${ANALYZER_WORKER_URL}/analyzer${path}`, {
+  const res = await analyzerAuthenticatedFetch(`${ANALYZER_WORKER_URL}/analyzer${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       'X-Sched-Department': String(analyzerDepartment.id)
     },
-    credentials: 'include',
     body: body ? JSON.stringify(body) : undefined
   });
   if (!res.ok) {
