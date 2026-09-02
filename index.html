@@ -4945,11 +4945,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderExcusedSidebar(); renderPenaltyFreeSidebar();
   applyLiveDateLimits();
 
-  // Through the end of the current summer semester, start from the newest saved
-  // snapshot so every viewer sees the same reviewed attendance state. Live data
-  // remains an explicit manager/director action and resumes as the default after
-  // the cutoff. Exported HTML snapshots carry their own bootstrap data and must
-  // stay frozen.
+  // Exported HTML snapshots carry their own bootstrap data and must stay frozen.
   if (document.getElementById('snapshot-data-bootstrap')) return;
 
   try {
@@ -4961,11 +4957,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   restoreUploadSectionState();
-  await prefillPeriodsFromSemester();
-  const loadedSnapshot = shouldAutoLoadLatestSnapshot()
-    ? await loadLatestAnalyzerSnapshot()
-    : false;
-  if (!loadedSnapshot) await loadLiveData();
+  // Startup always shows the active semester's live data. Saved snapshots stay
+  // an explicit pick from the Snapshots list, so a new semester never opens on
+  // the previous one's reviewed state. On a semester's first day there is no
+  // complete day to pull yet, so say so instead of requesting a range the
+  // Worker would reject.
+  const semester = await prefillPeriodsFromSemester();
+  if (semester && semester.pending) {
+    liveMsg(semester.name + ' starts ' + semester.start_date + ' · live data begins ' + ymdAddDays(semester.start_date, 1) + '.', true);
+  } else {
+    await loadLiveData();
+  }
   window.setInterval(checkAnalyzerDepartmentContext, 10000);
 });
 
@@ -4974,7 +4976,6 @@ const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
 let analyzerDepartment = null;
 let _snapshots = [];
 let _snapLoading = false;
-const SUMMER_SNAPSHOT_DEFAULT_THROUGH = '2026-09-02';
 
 function analyzerWorkerReady() {
   return ANALYZER_WORKER_URL && !ANALYZER_WORKER_URL.includes('YOUR-SUBDOMAIN');
@@ -5202,10 +5203,6 @@ function isStudioDepartment() {
 
 function canEditAttendance() {
   return !!(analyzerDepartment && analyzerDepartment.canEdit);
-}
-
-function shouldAutoLoadLatestSnapshot() {
-  return isStudioDepartment() && localYmd() <= SUMMER_SNAPSHOT_DEFAULT_THROUGH;
 }
 
 function applyAnalyzerPermissions() {
@@ -5496,28 +5493,6 @@ async function loadAnalyzerSnapshot(name) {
   }
 }
 
-function analyzerSnapshotSortValue(snapshot) {
-  const meta = snapshot && snapshot.meta || {};
-  const dateTo = Date.parse(String(meta.dateTo || meta.date_to || '') + 'T12:00:00Z');
-  if (Number.isFinite(dateTo)) return dateTo;
-  const savedAt = Date.parse(meta.savedAt || meta.saved_at || '');
-  return Number.isFinite(savedAt) ? savedAt : 0;
-}
-
-function latestAnalyzerSnapshot() {
-  return _snapshots.slice().sort((a, b) =>
-    analyzerSnapshotSortValue(a) - analyzerSnapshotSortValue(b) ||
-    String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true })
-  ).pop() || null;
-}
-
-async function loadLatestAnalyzerSnapshot() {
-  await listAnalyzerSnapshots();
-  const latest = latestAnalyzerSnapshot();
-  if (!latest) return false;
-  return loadAnalyzerSnapshot(String(latest.name || '').replace(/\.json$/, ''));
-}
-
 /**
  * Pull live scheduler data (D1) for the selected date range and run analysis,
  * instead of loading WhenIWork .xlsx exports. The Worker maps its scheduler
@@ -5793,21 +5768,24 @@ function syncPeriod2Start() {
 // Best-effort: pre-fill the optional period-comparison inputs from the active
 // semester, split into halves. Loading either comparison period remains a
 // manual action; normal startup loads the complete live semester separately.
-// Skips if the user already typed a range or the live endpoint is unreachable.
+// Skips the pre-fill if the user already typed a range. Returns the active
+// semester (`pending` when it has no complete day yet) so startup can decide
+// whether a live pull makes sense, or null when it is unknown.
 async function prefillPeriodsFromSemester() {
-  if (!analyzerWorkerReady()) return;
+  if (!analyzerWorkerReady()) return null;
+  let data;
+  try { data = await analyzerApiCall('GET', '/semesters'); } catch (e) { return null; }
+  const sem = data && data.active;
+  if (!sem || !sem.start_date || !sem.end_date) return null;
+  const latest = latestLiveDate();
+  const result = { name: sem.name, start_date: sem.start_date, end_date: sem.end_date, pending: sem.start_date > latest };
   const anyFilled = ['p1-from','p1-to','p2-from','p2-to']
     .some(id => { const el = document.getElementById(id); return el && (el.value || '').trim(); });
-  if (anyFilled) return;
-  let data;
-  try { data = await analyzerApiCall('GET', '/semesters'); } catch (e) { return; }
-  const sem = data && data.active;
-  if (!sem || !sem.start_date || !sem.end_date) return;
-  const latest = latestLiveDate();
-  if (sem.start_date > latest) {
+  if (anyFilled) return result;
+  if (result.pending) {
     const hint = document.getElementById('live-periods-hint');
     if (hint) { hint.textContent = sem.name + ' · live data starts after the latest complete day'; hint.style.display = 'block'; }
-    return;
+    return result;
   }
   const cappedEnd = sem.end_date > latest ? latest : sem.end_date;
   const h = semesterHalves(sem.start_date, cappedEnd);
@@ -5817,6 +5795,7 @@ async function prefillPeriodsFromSemester() {
   syncPeriod2Start(); // p2-from = day after p1-to
   const hint = document.getElementById('live-periods-hint');
   if (hint) { hint.textContent = sem.name + ' · pre-split through ' + cappedEnd; hint.style.display = 'block'; }
+  return result;
 }
 
 async function deleteAnalyzerSnapshot(name) {
