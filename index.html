@@ -689,6 +689,8 @@ body.attendance-readonly #attendance-readonly-notice { display: block !important
     <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
     <button class="export-btn attendance-edit-only" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
+    <!-- Clean slate: unload live + uploaded data (e.g. to analyze WhenIWork exports alone) -->
+    <button class="export-btn attendance-edit-only" id="clear-data-btn" onclick="clearLoadedData()" style="margin-top:4px;background:var(--danger-bg-soft);border-color:var(--danger-border);color:var(--danger-fg);font-size:11px" title="Unload all live and uploaded data so you can start from a clean slate">Clear Loaded Data</button>
 
     <!-- Snapshot browser -->
     <button class="export-btn snap-toggle" id="snap-toggle-btn" onclick="toggleSnapPanel()" style="margin-top:4px">Snapshots</button>
@@ -5579,6 +5581,54 @@ async function loadLiveData() {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = prevLabel || 'Load Live Data'; }
   }
+}
+
+// Unload everything live or uploaded so the page starts from a clean slate —
+// e.g. to analyze WhenIWork exports on their own instead of on top of the live
+// semester that startup pulls automatically. Department edits synced to the
+// server (excused ranges, manual closures, penalty-free days) are kept: they
+// are configuration, not data, and re-apply to whatever loads next.
+function clearLoadedData() {
+  for (const key of ['absences','clockin','shifts','timesheets','absences2','clockin2','shifts2','timesheets2','users','userMap','emailMap']) state[key] = null;
+  state.results = null; state.detailMap = {}; state.prepCloseData = null; state._lastBuilt = null; state.shiftFilter = {};
+  state.overrides = new Set(); state.omissions = new Set(); state.autocorrections = new Set();
+  state.inferredClosures = new Set(); state.closuresDirty = false;
+  state.att.openRows.clear(); state.pc.openRows.clear();
+
+  // Upload zones + folder pickers back to their untouched look
+  document.querySelectorAll('.upload-zone').forEach(z => z.classList.remove('loaded','error','drag-over'));
+  document.querySelectorAll('.zone-status').forEach(st => { st.className = 'zone-status'; st.textContent = ''; });
+  document.querySelectorAll('.upload-zone input[type=file]').forEach(inp => { inp.value = ''; });
+  for (const suffix of ['', '2']) {
+    const st  = document.getElementById('folder-status' + suffix); if (st)  st.textContent = '';
+    const btn = document.getElementById('folder-btn' + suffix);    if (btn) btn.classList.remove('loaded');
+    const inp = document.getElementById('folder-input' + suffix);  if (inp) inp.value = '';
+  }
+
+  // Everything that only makes sense with data loaded
+  ['run-btn','export-btn','snapshot-btn','correct-btn','worker-pdf-btn','bulk-pdf-btn','github-push-btn']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+  const correctBtn = document.getElementById('correct-btn');
+  if (correctBtn) {
+    correctBtn.innerHTML = 'Apply Clock Fixes';
+    correctBtn.style.background = 'var(--accent-bg)';
+    correctBtn.style.borderColor = 'var(--accent-disabled-fg)';
+    correctBtn.style.color = 'var(--accent)';
+  }
+  const dd = document.getElementById('worker-dropdown');      if (dd)   dd.style.display = 'none';
+  const ddl = document.getElementById('worker-dropdown-list'); if (ddl) ddl.innerHTML = '';
+  updateCorrectionCount();
+  updateDateRangePill(null);
+  renderClosuresSidebar();
+
+  // Reset the view window; run-btn is disabled so this won't re-analyze
+  document.getElementById('filter-date-from').value = '';
+  document.getElementById('filter-date-to').value   = '';
+  onDateFilterChange();
+  setPeriodMsg('');
+
+  document.getElementById('main').innerHTML = '<div class="empty-state"><div class="big">📂</div><p>Load live department data or upload reports to begin</p><p class="sub">Local files stay in your browser</p></div>';
+  liveMsg('Loaded data cleared — upload WhenIWork reports or load live data to begin.');
 }
 
 // Collapse/expand the sidebar's Upload Reports section (spreadsheet drop zones).
