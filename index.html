@@ -689,6 +689,9 @@ body.attendance-readonly #attendance-readonly-notice { display: block !important
     <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
     <button class="export-btn attendance-edit-only" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
+    <label class="attendance-edit-only" style="display:flex;align-items:center;gap:6px;margin-top:5px;font-size:10px;color:var(--text-muted);cursor:pointer" title="Don't pull live scheduler data automatically when the Analyzer opens. Load Live Data still works on demand.">
+      <input type="checkbox" id="skip-live-autoload" onchange="setSkipLiveAutoload(this.checked)" style="margin:0"> Skip live auto-load on open
+    </label>
     <!-- Clean slate: unload live + uploaded data (e.g. to analyze WhenIWork exports alone) -->
     <button class="export-btn attendance-edit-only" id="clear-data-btn" onclick="clearLoadedData()" style="margin-top:4px;background:var(--danger-bg-soft);border-color:var(--danger-border);color:var(--danger-fg);font-size:11px" title="Unload all live and uploaded data so you can start from a clean slate">Clear Loaded Data</button>
 
@@ -4959,13 +4962,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   restoreUploadSectionState();
+  restoreSkipLiveAutoload();
   // Startup always shows the active semester's live data. Saved snapshots stay
   // an explicit pick from the Snapshots list, so a new semester never opens on
   // the previous one's reviewed state. On a semester's first day there is no
   // complete day to pull yet, so say so instead of requesting a range the
   // Worker would reject.
   const semester = await prefillPeriodsFromSemester();
-  if (semester && semester.pending) {
+  if (skipLiveAutoload()) {
+    liveMsg('Live auto-load skipped — upload WhenIWork reports or click Load Live Data.');
+  } else if (semester && semester.pending) {
     liveMsg(semester.name + ' starts ' + semester.start_date + ' · live data begins ' + ymdAddDays(semester.start_date, 1) + '.', true);
   } else {
     await loadLiveData();
@@ -5656,6 +5662,21 @@ function restoreUploadSectionState() {
   const label = document.getElementById('upload-section-label');
   const body  = document.getElementById('upload-section-body');
   if (label && body) { body.classList.add('collapsed'); label.classList.add('collapsed'); }
+}
+
+// Per-department, per-browser preference: open the Analyzer empty instead of
+// auto-pulling the active semester's live data (handy while WhenIWork exports
+// are still the data being reviewed). Load Live Data stays available on demand.
+function skipLiveAutoload() {
+  try { return localStorage.getItem(analyzerStorageKey('skipLiveAutoload')) === '1'; } catch (e) { return false; }
+}
+function setSkipLiveAutoload(on) {
+  try { localStorage.setItem(analyzerStorageKey('skipLiveAutoload'), on ? '1' : '0'); } catch (e) {}
+  liveMsg(on ? 'Live data will not auto-load on open.' : 'Live data will auto-load on open.');
+}
+function restoreSkipLiveAutoload() {
+  const el = document.getElementById('skip-live-autoload');
+  if (el) el.checked = skipLiveAutoload();
 }
 
 function setPeriodMsg(text, isError) {
