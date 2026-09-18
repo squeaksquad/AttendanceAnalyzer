@@ -4963,13 +4963,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   restoreUploadSectionState();
   restoreSkipLiveAutoload();
-  // Startup always shows the active semester's live data. Saved snapshots stay
-  // an explicit pick from the Snapshots list, so a new semester never opens on
-  // the previous one's reviewed state. On a semester's first day there is no
-  // complete day to pull yet, so say so instead of requesting a range the
-  // Worker would reject.
+  // Startup opens on the newest saved snapshot: until the Scheduler is fully in
+  // production, the reviewed WhenIWork-derived snapshots are more accurate than
+  // the live pull. Live data stays one click away via Load Live Data. When the
+  // department has no snapshot yet, fall through to the live-data rules below:
+  // on a semester's first day there is no complete day to pull yet, so say so
+  // instead of requesting a range the Worker would reject.
   const semester = await prefillPeriodsFromSemester();
-  if (skipLiveAutoload()) {
+  if (await loadLatestAnalyzerSnapshot()) {
+    // Snapshot already reported itself via snapMsg/liveMsg.
+  } else if (skipLiveAutoload()) {
     liveMsg('Live auto-load skipped — upload WhenIWork reports or click Load Live Data.');
   } else if (semester && semester.pending) {
     liveMsg(semester.name + ' starts ' + semester.start_date + ' · live data begins ' + ymdAddDays(semester.start_date, 1) + '.', true);
@@ -5499,6 +5502,39 @@ async function loadAnalyzerSnapshot(name) {
     _snapLoading = false;
     renderSnapList();
   }
+}
+
+// Newest snapshot = the one covering the latest date (dateTo), then the most
+// recently saved, then name order — so a re-saved snapshot for the same range
+// wins over the older save.
+function analyzerSnapshotSortValue(snapshot) {
+  const meta = snapshot && snapshot.meta || {};
+  const dateTo = Date.parse(String(meta.dateTo || meta.date_to || '') + 'T12:00:00Z');
+  const savedAt = Date.parse(meta.savedAt || meta.saved_at || '');
+  return [Number.isFinite(dateTo) ? dateTo : 0, Number.isFinite(savedAt) ? savedAt : 0];
+}
+
+function latestAnalyzerSnapshot() {
+  return _snapshots.slice().sort((a, b) => {
+    const [aDate, aSaved] = analyzerSnapshotSortValue(a);
+    const [bDate, bSaved] = analyzerSnapshotSortValue(b);
+    return (aDate - bDate) || (aSaved - bSaved) ||
+      String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+  }).pop() || null;
+}
+
+// Startup default: open on the newest saved snapshot. Returns false when the
+// department has no snapshots or the load fails, so startup can fall back to
+// its live-data rules.
+async function loadLatestAnalyzerSnapshot() {
+  if (!analyzerWorkerReady()) return false;
+  await listAnalyzerSnapshots();
+  const latest = latestAnalyzerSnapshot();
+  if (!latest) return false;
+  const name = String(latest.name || '').replace(/\.json$/, '');
+  const ok = await loadAnalyzerSnapshot(name);
+  if (ok) liveMsg('Opened snapshot "' + name + '" — click Load Live Data for current scheduler data.');
+  return ok;
 }
 
 /**
