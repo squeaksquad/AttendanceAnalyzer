@@ -476,6 +476,14 @@ details[open] > summary .details-arrow { transform: rotate(90deg); }
 /* ── Snapshot browser panel ── */
 .snap-toggle { width: 100%; margin-top: 6px; }
 .snap-toggle.active { background: var(--success-bg-soft); border-color: var(--success-border); color: var(--success-fg-deep); }
+.startup-mode { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.startup-mode-label { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; }
+.startup-mode-seg { display: flex; flex: 1; border: 1px solid var(--border-strong); border-radius: 4px; overflow: hidden; }
+.startup-mode-btn { flex: 1; background: var(--surface); border: 0; padding: 5px 0; font-size: 10px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: all .15s; }
+.startup-mode-btn + .startup-mode-btn { border-left: 1px solid var(--border-strong); }
+.startup-mode-btn:hover { color: var(--accent); }
+.startup-mode-btn.active { background: var(--accent-bg); color: var(--accent); }
+.startup-mode-btn:disabled { opacity: .5; cursor: wait; }
 .snap-panel { background: var(--snap-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-top: 6px; }
 .snap-save-row { display: flex; gap: 6px; margin-bottom: 6px; }
 .snap-save-row input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: 4px; padding: 5px 8px; font-size: 11px; font-family: var(--font-mono); background: var(--surface); color: var(--text); outline: none; }
@@ -689,9 +697,14 @@ body.attendance-readonly #attendance-readonly-notice { display: block !important
     <!-- Live data: pull current scheduler state straight from the Worker (D1) -->
     <button class="export-btn attendance-edit-only" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
-    <label class="attendance-edit-only" style="display:flex;align-items:center;gap:6px;margin-top:5px;font-size:10px;color:var(--text-muted);cursor:pointer" title="Don't pull live scheduler data automatically when the Analyzer opens. Load Live Data still works on demand.">
-      <input type="checkbox" id="skip-live-autoload" onchange="setSkipLiveAutoload(this.checked)" style="margin:0"> Skip live auto-load on open
-    </label>
+    <!-- Department-wide startup default: what the Analyzer opens on for everyone -->
+    <div class="attendance-edit-only startup-mode" id="startup-mode" title="What the Analyzer opens on for everyone in this department. Manual = the newest saved snapshot; Live = the active semester's live scheduler data.">
+      <span class="startup-mode-label">Opens on</span>
+      <div class="startup-mode-seg" role="group" aria-label="Default data on open">
+        <button type="button" class="startup-mode-btn" data-startup-mode="manual" onclick="requestStartupModeChange('manual')">Manual</button>
+        <button type="button" class="startup-mode-btn" data-startup-mode="live" onclick="requestStartupModeChange('live')">Live</button>
+      </div>
+    </div>
     <!-- Clean slate: unload live + uploaded data (e.g. to analyze WhenIWork exports alone) -->
     <button class="export-btn attendance-edit-only" id="clear-data-btn" onclick="clearLoadedData()" style="margin-top:4px;background:var(--danger-bg-soft);border-color:var(--danger-border);color:var(--danger-fg);font-size:11px" title="Unload all live and uploaded data so you can start from a clean slate">Clear Loaded Data</button>
 
@@ -4962,22 +4975,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   restoreUploadSectionState();
-  restoreSkipLiveAutoload();
-  // Startup opens on the newest saved snapshot: until the Scheduler is fully in
-  // production, the reviewed WhenIWork-derived snapshots are more accurate than
-  // the live pull. Live data stays one click away via Load Live Data. When the
-  // department has no snapshot yet, fall through to the live-data rules below:
-  // on a semester's first day there is no complete day to pull yet, so say so
-  // instead of requesting a range the Worker would reject.
+  renderStartupMode();
+  // What the Analyzer opens on is a department-wide setting (see
+  // analyzerStartupMode). 'manual' opens on the newest saved snapshot — the
+  // reviewed WhenIWork-derived data — and otherwise stays empty; 'live' pulls
+  // the active semester's live scheduler data. On a semester's first day there
+  // is no complete day to pull yet, so say so instead of requesting a range the
+  // Worker would reject. Load Live Data is always available on demand.
   const semester = await prefillPeriodsFromSemester();
-  if (await loadLatestAnalyzerSnapshot()) {
-    // Snapshot already reported itself via snapMsg/liveMsg.
-  } else if (skipLiveAutoload()) {
-    liveMsg('Live auto-load skipped — upload WhenIWork reports or click Load Live Data.');
-  } else if (semester && semester.pending) {
-    liveMsg(semester.name + ' starts ' + semester.start_date + ' · live data begins ' + ymdAddDays(semester.start_date, 1) + '.', true);
-  } else {
-    await loadLiveData();
+  if (analyzerStartupMode() === 'live') {
+    if (semester && semester.pending) {
+      liveMsg(semester.name + ' starts ' + semester.start_date + ' · live data begins ' + ymdAddDays(semester.start_date, 1) + '.', true);
+    } else {
+      await loadLiveData();
+    }
+  } else if (!(await loadLatestAnalyzerSnapshot())) {
+    liveMsg('Manual mode — upload WhenIWork reports, load a snapshot, or click Load Live Data.');
   }
   window.setInterval(checkAnalyzerDepartmentContext, 10000);
 });
@@ -5310,9 +5323,11 @@ function applyAnalyzerDepartment(context) {
     canEdit: context.canEdit === true || (
       context.canEdit == null &&
       ['manager', 'director', 'platform_support'].includes(context.role)
-    )
+    ),
+    startupMode: normalizeStartupMode(context.settings && context.settings.startupMode),
   };
   applyAnalyzerPermissions();
+  renderStartupMode();
   const label = document.getElementById('department-label');
   if (label) label.textContent = analyzerDepartment.shortLabel || analyzerDepartment.name;
 
@@ -5760,16 +5775,45 @@ function restoreUploadSectionState() {
 // Per-department, per-browser preference: open the Analyzer empty instead of
 // auto-pulling the active semester's live data (handy while WhenIWork exports
 // are still the data being reviewed). Load Live Data stays available on demand.
-function skipLiveAutoload() {
-  try { return localStorage.getItem(analyzerStorageKey('skipLiveAutoload')) === '1'; } catch (e) { return false; }
+// Department-wide startup default, stored server-side (scheduler_settings
+// key='analyzer') so it applies to everyone who opens this department's
+// Analyzer, not just this browser. 'manual' = newest saved snapshot (the
+// WhenIWork-derived review data); 'live' = active semester's live pull.
+const STARTUP_MODES = ['manual', 'live'];
+const STARTUP_MODE_CONFIRM = 'Are you sure? This will change the default behavior for everyone.';
+function normalizeStartupMode(mode) {
+  return STARTUP_MODES.includes(mode) ? mode : 'manual';
 }
-function setSkipLiveAutoload(on) {
-  try { localStorage.setItem(analyzerStorageKey('skipLiveAutoload'), on ? '1' : '0'); } catch (e) {}
-  liveMsg(on ? 'Live data will not auto-load on open.' : 'Live data will auto-load on open.');
+function analyzerStartupMode() {
+  return normalizeStartupMode(analyzerDepartment && analyzerDepartment.startupMode);
 }
-function restoreSkipLiveAutoload() {
-  const el = document.getElementById('skip-live-autoload');
-  if (el) el.checked = skipLiveAutoload();
+function renderStartupMode() {
+  const mode = analyzerStartupMode();
+  document.querySelectorAll('.startup-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.startupMode === mode);
+    btn.setAttribute('aria-pressed', btn.dataset.startupMode === mode ? 'true' : 'false');
+  });
+}
+async function requestStartupModeChange(mode) {
+  mode = normalizeStartupMode(mode);
+  if (mode === analyzerStartupMode()) return false;
+  if (!confirm(STARTUP_MODE_CONFIRM)) return false;
+  const buttons = document.querySelectorAll('.startup-mode-btn');
+  buttons.forEach(b => { b.disabled = true; });
+  try {
+    const data = await analyzerApiCall('PUT', '/settings', { startupMode: mode });
+    analyzerDepartment.startupMode = normalizeStartupMode(data && data.settings && data.settings.startupMode);
+    liveMsg(analyzerDepartment.startupMode === 'live'
+      ? 'Everyone now opens on live scheduler data.'
+      : 'Everyone now opens on the newest saved snapshot.');
+    return true;
+  } catch (e) {
+    liveMsg('Could not change the default: ' + e.message, true);
+    return false;
+  } finally {
+    buttons.forEach(b => { b.disabled = false; });
+    renderStartupMode();
+  }
 }
 
 function setPeriodMsg(text, isError) {
