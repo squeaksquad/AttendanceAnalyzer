@@ -5055,8 +5055,8 @@ function analyzerAuthNonce() {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-let analyzerAssertionState = null; // { token, expiresAt, departmentId } — memory only, never persisted
-let analyzerRenewalState = null;   // { token, absoluteExpiresAt } — memory only, never persisted
+let analyzerAssertionState = null; // { token, expiresAt, departmentId } — mirrored to sessionStorage
+let analyzerRenewalState = null;   // { token, absoluteExpiresAt } — mirrored to sessionStorage
 let analyzerAuthMode = 'cookie';   // 'cookie' | 'assertion'
 let analyzerRenewalTimer = null;
 
@@ -5064,11 +5064,47 @@ function isAnalyzerEmbedded() {
   try { return window.parent !== window; } catch (e) { return true; }
 }
 
+// The assertion and renewal token are mirrored to sessionStorage so a reload of
+// the standalone page resumes assertion mode instead of falling to the cookie
+// path, which the Worker rejects for the Analyzer origin (Release 4F-d). The
+// state still dies with the tab; it is never written to localStorage.
+const ANALYZER_AUTH_STORAGE_KEY = 'analyzerAuthState';
+
+function persistAnalyzerAssertionState() {
+  try {
+    if (!analyzerAssertionState) { sessionStorage.removeItem(ANALYZER_AUTH_STORAGE_KEY); return; }
+    sessionStorage.setItem(ANALYZER_AUTH_STORAGE_KEY, JSON.stringify({
+      assertion: analyzerAssertionState,
+      renewal: analyzerRenewalState,
+    }));
+  } catch (e) {}
+}
+
+function readPersistedAnalyzerAssertionState() {
+  try {
+    const raw = sessionStorage.getItem(ANALYZER_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    const a = data && data.assertion;
+    const r = data && data.renewal;
+    const assertion = a && typeof a.token === 'string' && ANALYZER_ASSERTION_PATTERN.test(a.token) &&
+      Number.isFinite(a.expiresAt) && Number.isInteger(a.departmentId)
+      ? { token: a.token, expiresAt: a.expiresAt, departmentId: a.departmentId } : null;
+    const renewal = r && typeof r.token === 'string' && ANALYZER_OPAQUE_VALUE_PATTERN.test(r.token) &&
+      Number.isFinite(r.absoluteExpiresAt)
+      ? { token: r.token, absoluteExpiresAt: r.absoluteExpiresAt } : null;
+    return assertion ? { assertion, renewal } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function clearAnalyzerAssertionState() {
   if (analyzerRenewalTimer) { clearTimeout(analyzerRenewalTimer); analyzerRenewalTimer = null; }
   analyzerAssertionState = null;
   analyzerRenewalState = null;
   analyzerAuthMode = 'cookie';
+  persistAnalyzerAssertionState();
 }
 
 function scheduleAnalyzerRenewal() {
@@ -5093,6 +5129,7 @@ function applyAnalyzerAssertion(payload) {
     };
   }
   scheduleAnalyzerRenewal();
+  persistAnalyzerAssertionState();
 }
 
 async function exchangeAnalyzerGrant(path, field, value) {
@@ -5119,6 +5156,25 @@ async function renewAnalyzerAssertion() {
   const data = await exchangeAnalyzerGrant('/analyzer/auth/renew', 'renewal', analyzerRenewalState.token);
   if (!data) { clearAnalyzerAssertionState(); return; }
   applyAnalyzerAssertion(data);
+}
+
+// Resumes a previous page load's assertion from sessionStorage: use it directly
+// while still usable, otherwise renew from the stored renewal token.
+async function tryAnalyzerStoredResume() {
+  const stored = readPersistedAnalyzerAssertionState();
+  if (!stored) return false;
+  const now = Date.now();
+  if (isAnalyzerAssertionUsable(stored.assertion, now)) {
+    analyzerAssertionState = stored.assertion;
+    analyzerRenewalState = stored.renewal;
+    analyzerAuthMode = 'assertion';
+    scheduleAnalyzerRenewal();
+    return true;
+  }
+  if (!isAnalyzerRenewalUsable(stored.renewal, now)) { clearAnalyzerAssertionState(); return false; }
+  analyzerRenewalState = stored.renewal;
+  await renewAnalyzerAssertion();
+  return analyzerAuthMode === 'assertion';
 }
 
 async function tryAnalyzerHandoffExchange() {
@@ -5174,6 +5230,7 @@ function tryAnalyzerEmbeddedHandshake(timeoutMs) {
 // simply times out and every embedded load keeps using the cookie path below.
 async function establishAnalyzerAuth() {
   if (await tryAnalyzerHandoffExchange()) return;
+  if (await tryAnalyzerStoredResume()) return;
   await tryAnalyzerEmbeddedHandshake(ANALYZER_HANDSHAKE_TIMEOUT_MS);
 }
 

@@ -44,7 +44,17 @@ function makeWindow() {
 
 /** Builds a fresh sandboxed copy of the dual-client auth module with fake
  * browser globals, so each test gets independent module-level auth state. */
-async function createSandbox({ embedded = false, fetchImpl, hash = '', posted } = {}) {
+function makeSessionStorage(initial = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: (k) => { store.delete(k); },
+    dump: () => Object.fromEntries(store),
+  };
+}
+
+async function createSandbox({ embedded = false, fetchImpl, hash = '', posted, sessionStorage } = {}) {
   const source = await getAuthSource();
   const win = makeWindow();
   const parentWindow = embedded ? { postMessage: (data, origin) => posted && posted(data, origin) } : win;
@@ -52,15 +62,18 @@ async function createSandbox({ embedded = false, fetchImpl, hash = '', posted } 
 
   const sandbox = {
     window: win,
+    ...(sessionStorage ? { sessionStorage } : {}),
     location: { hash, pathname: '/', search: '' },
     history: { calls: [], replaceState(...args) { this.calls.push(args); } },
     crypto: { getRandomValues: (arr) => { for (let i = 0; i < arr.length; i++) arr[i] = (i * 7 + 13) % 256; return arr; } },
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
     URL,
     fetch: (...args) => fetchImpl(...args),
-    // Real timers, but unref'd so a scheduled renewal (minutes out) never
-    // keeps the test process alive; tests assert on state, not on firing.
-    setTimeout: (fn, delay) => { const t = setTimeout(fn, delay); if (t.unref) t.unref(); return t; },
+    // Real timers. A scheduled renewal (minutes out) is unref'd so it never
+    // keeps the test process alive; the short handshake timeout must stay
+    // ref'd or the event loop exits before it fires and node:test cancels
+    // every later test in the file.
+    setTimeout: (fn, delay) => { const t = setTimeout(fn, delay); if (delay > 10000 && t.unref) t.unref(); return t; },
     clearTimeout,
     console,
   };
@@ -71,6 +84,7 @@ async function createSandbox({ embedded = false, fetchImpl, hash = '', posted } 
     'isAnalyzerRenewalUsable', 'analyzerAuthNonce', 'isAnalyzerEmbedded', 'clearAnalyzerAssertionState',
     'applyAnalyzerAssertion', 'exchangeAnalyzerGrant', 'renewAnalyzerAssertion', 'tryAnalyzerHandoffExchange',
     'tryAnalyzerEmbeddedHandshake', 'establishAnalyzerAuth', 'analyzerRequestInit', 'analyzerAuthenticatedFetch',
+    'tryAnalyzerStoredResume',
   ];
   const script = new vm.Script(
     `${source}\nglobalThis.__exports = { ${exported.join(', ')}, get state() { ` +
@@ -367,4 +381,108 @@ test('establishAnalyzerAuth: no handoff and not embedded (or Scheduler not yet a
   await exports.establishAnalyzerAuth();
   assert.equal(exports.state.mode, 'cookie');
   assert.equal(exports.state.assertion, null);
+});
+
+// ── sessionStorage resume (standalone reload) ────────────────────────────────
+// A reload of the full-page Analyzer has no handoff fragment and no parent to
+// handshake with, and the Worker rejects the cookie path for the Analyzer
+// origin. The assertion is therefore mirrored to sessionStorage (tab-scoped,
+// never localStorage) so the reload resumes assertion mode.
+
+const STORAGE_KEY = 'analyzerAuthState';
+
+test('persistence: applying an assertion mirrors it to sessionStorage; clearing removes it', async () => {
+  const storage = makeSessionStorage();
+  const { exports } = await createSandbox({ fetchImpl: async () => jsonResponse(500, {}), sessionStorage: storage });
+  exports.applyAnalyzerAssertion({
+    assertion: VALID_ASSERTION_1, expires_at: Date.now() + 300000, department_id: 5,
+    renewal: VALID_OPAQUE_A, renewal_expires_at: Date.now() + 3600000,
+  });
+  const stored = JSON.parse(storage.getItem(STORAGE_KEY));
+  assert.equal(stored.assertion.token, VALID_ASSERTION_1);
+  assert.equal(stored.renewal.token, VALID_OPAQUE_A);
+  exports.clearAnalyzerAssertionState();
+  assert.equal(storage.getItem(STORAGE_KEY), null);
+});
+
+test('persistence: without sessionStorage (sandboxed/blocked), auth still works in memory', async () => {
+  const { exports } = await createSandbox({ fetchImpl: async () => jsonResponse(500, {}) });
+  exports.applyAnalyzerAssertion({ assertion: VALID_ASSERTION_1, expires_at: Date.now() + 300000, department_id: 5 });
+  assert.equal(exports.state.mode, 'assertion');
+  exports.clearAnalyzerAssertionState();
+  assert.equal(exports.state.mode, 'cookie');
+});
+
+test('resume: a still-usable stored assertion is adopted with no network request', async () => {
+  const calls = [];
+  const storage = makeSessionStorage({ [STORAGE_KEY]: JSON.stringify({
+    assertion: { token: VALID_ASSERTION_1, expiresAt: Date.now() + 300000, departmentId: 5 },
+    renewal: { token: VALID_OPAQUE_A, absoluteExpiresAt: Date.now() + 3600000 },
+  }) });
+  const { exports } = await createSandbox({ fetchImpl: async (...a) => { calls.push(a); return jsonResponse(500, {}); }, sessionStorage: storage });
+  await exports.establishAnalyzerAuth();
+  assert.equal(exports.state.mode, 'assertion');
+  assert.equal(exports.state.assertion.token, VALID_ASSERTION_1);
+  assert.equal(exports.state.renewal.token, VALID_OPAQUE_A);
+  assert.equal(calls.length, 0);
+});
+
+test('resume: an expired stored assertion with a usable renewal token renews once', async () => {
+  const calls = [];
+  const storage = makeSessionStorage({ [STORAGE_KEY]: JSON.stringify({
+    assertion: { token: VALID_ASSERTION_1, expiresAt: Date.now() - 1000, departmentId: 5 },
+    renewal: { token: VALID_OPAQUE_A, absoluteExpiresAt: Date.now() + 3600000 },
+  }) });
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    return jsonResponse(200, {
+      assertion: VALID_ASSERTION_2, expires_at: Date.now() + 300000, department_id: 5,
+      renewal: VALID_OPAQUE_B, renewal_expires_at: Date.now() + 3600000,
+    });
+  };
+  const { exports } = await createSandbox({ fetchImpl, sessionStorage: storage });
+  await exports.establishAnalyzerAuth();
+  assert.equal(exports.state.mode, 'assertion');
+  assert.equal(exports.state.assertion.token, VALID_ASSERTION_2);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${ANALYZER_WORKER_URL}/analyzer/auth/renew`);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { renewal: VALID_OPAQUE_A });
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).renewal.token, VALID_OPAQUE_B);
+});
+
+test('resume: expired assertion and expired renewal clears storage and falls back to cookie mode', async () => {
+  const calls = [];
+  const storage = makeSessionStorage({ [STORAGE_KEY]: JSON.stringify({
+    assertion: { token: VALID_ASSERTION_1, expiresAt: Date.now() - 1000, departmentId: 5 },
+    renewal: { token: VALID_OPAQUE_A, absoluteExpiresAt: Date.now() - 1000 },
+  }) });
+  const { exports } = await createSandbox({ fetchImpl: async (...a) => { calls.push(a); return jsonResponse(500, {}); }, sessionStorage: storage });
+  await exports.establishAnalyzerAuth();
+  assert.equal(exports.state.mode, 'cookie');
+  assert.equal(calls.length, 0);
+  assert.equal(storage.getItem(STORAGE_KEY), null);
+});
+
+test('resume: malformed stored state is ignored', async () => {
+  for (const raw of ['not json', JSON.stringify({ assertion: { token: 'nope', expiresAt: Date.now() + 1000, departmentId: 5 } }), JSON.stringify({})]) {
+    const storage = makeSessionStorage({ [STORAGE_KEY]: raw });
+    const { exports } = await createSandbox({ fetchImpl: async () => jsonResponse(500, {}), sessionStorage: storage });
+    assert.equal(await exports.tryAnalyzerStoredResume(), false);
+    assert.equal(exports.state.mode, 'cookie');
+  }
+});
+
+test('resume: a fresh handoff code takes precedence over stored state', async () => {
+  const storage = makeSessionStorage({ [STORAGE_KEY]: JSON.stringify({
+    assertion: { token: VALID_ASSERTION_1, expiresAt: Date.now() + 300000, departmentId: 5 },
+    renewal: null,
+  }) });
+  const fetchImpl = async () => jsonResponse(200, {
+    assertion: VALID_ASSERTION_2, expires_at: Date.now() + 300000, department_id: 9,
+    renewal: VALID_OPAQUE_B, renewal_expires_at: Date.now() + 3600000,
+  });
+  const { exports } = await createSandbox({ hash: `#handoff=${VALID_OPAQUE_A}`, fetchImpl, sessionStorage: storage });
+  await exports.establishAnalyzerAuth();
+  assert.equal(exports.state.assertion.token, VALID_ASSERTION_2);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).assertion.departmentId, 9);
 });
