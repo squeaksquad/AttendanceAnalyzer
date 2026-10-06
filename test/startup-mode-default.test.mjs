@@ -45,12 +45,23 @@ test('the startup mode comes from the /context settings and defaults to manual',
 
 test('changing the mode asks for confirmation and saves department-wide through PUT /settings', async () => {
   const { html } = await startupBlock();
-  assert.match(html, /STARTUP_MODE_CONFIRM = 'Are you sure\? This will change the default behavior for everyone\.'/);
   const fn = extractFunction(html, 'requestStartupModeChange');
-  assert.match(fn, /if \(!confirm\(STARTUP_MODE_CONFIRM\)\) return false;/);
+  // Each direction has its own wording, chosen by the mode being switched to.
+  assert.match(fn, /if \(!confirm\(STARTUP_MODE_CONFIRM\[mode\]\)\) return false;/);
   assert.match(fn, /analyzerApiCall\('PUT', '\/settings', \{ startupMode: mode \}\)/);
   // The confirm must come before the network call.
-  assert.ok(fn.indexOf('confirm(STARTUP_MODE_CONFIRM)') < fn.indexOf("analyzerApiCall('PUT'"));
+  assert.ok(fn.indexOf('confirm(STARTUP_MODE_CONFIRM[mode])') < fn.indexOf("analyzerApiCall('PUT'"));
+  // The setting also decides what assistants see in the Scheduler, and going
+  // Live swaps reviewed snapshot figures for live ones: both have to be said.
+  const start = html.indexOf('const STARTUP_MODE_CONFIRM = {');
+  const messages = Function(`${html.slice(start, html.indexOf('};', start) + 2)} return STARTUP_MODE_CONFIRM;`)();
+  assert.deepEqual(Object.keys(messages).sort(), ['live', 'manual']);
+  assert.match(messages.live, /My Attendance/);
+  assert.match(messages.live, /show as missed/);
+  // Going Live keeps the reviewed WhenIWork record in front of the live data.
+  assert.match(messages.live, /newest saved snapshot stays the record through its last day/);
+  assert.match(messages.manual, /My Attendance/);
+  assert.match(messages.manual, /no attendance page/);
   assert.match(html, /data-startup-mode="manual" onclick="requestStartupModeChange\('manual'\)"/);
   assert.match(html, /data-startup-mode="live" onclick="requestStartupModeChange\('live'\)"/);
 });
@@ -73,3 +84,12 @@ test('chooses the snapshot covering the latest date, then the newest save', asyn
   ]).name, 'FA26-9.13 corrected.json');
   assert.equal(latest(sortValue, []), null);
 });
+
+test('Load Live Data asks for the saved history; a per-period pull does not', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const load = extractFunction(html, 'loadLiveData');
+  assert.match(load, /qs\.push\('history=snapshot'\);/);
+  assert.match(load, /d\._meta && d\._meta\.history/);
+  assert.doesNotMatch(extractFunction(html, 'setPeriodFromLive'), /history=/);
+});
+

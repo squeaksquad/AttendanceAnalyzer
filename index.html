@@ -698,7 +698,7 @@ body.attendance-readonly #attendance-readonly-notice { display: block !important
     <button class="export-btn attendance-edit-only" id="live-btn" onclick="loadLiveData()" style="margin-top:4px;background:var(--accent-bg);border-color:var(--accent-disabled-fg);color:var(--accent)" title="Pull live scheduler data for the selected date range">Load Live Data</button>
     <div id="live-msg" class="snap-msg" style="display:none"></div>
     <!-- Department-wide startup default: what the Analyzer opens on for everyone -->
-    <div class="attendance-edit-only startup-mode" id="startup-mode" title="What the Analyzer opens on for everyone in this department. Manual = the newest saved snapshot; Live = the active semester's live scheduler data.">
+    <div class="attendance-edit-only startup-mode" id="startup-mode" title="What the Analyzer opens on for everyone in this department, and what assistants see on their My Attendance page. Manual = the newest saved snapshot; Live = the active semester's live scheduler data.">
       <span class="startup-mode-label">Opens on</span>
       <div class="startup-mode-seg" role="group" aria-label="Default data on open">
         <button type="button" class="startup-mode-btn" data-startup-mode="manual" onclick="requestStartupModeChange('manual')">Manual</button>
@@ -5690,6 +5690,12 @@ async function loadLiveData() {
   if (from) qs.push('from=' + encodeURIComponent(from));
   if (requestedTo || from) qs.push('to=' + encodeURIComponent(liveRange.to));
   if (toEl && requestedTo && liveRange.capped) toEl.value = liveRange.to;
+  // In a Live department the server puts the newest saved snapshot in front of
+  // the live rows, through the snapshot's last day, so a department that moved
+  // to the Scheduler mid-semester keeps the WhenIWork record it reviewed. A
+  // Manual department gets the Scheduler's data alone, as do the per-period
+  // pulls below, which never ask for this.
+  qs.push('history=snapshot');
 
   const btn = document.getElementById('live-btn');
   const prevLabel = btn ? btn.innerHTML : '';
@@ -5703,9 +5709,13 @@ async function loadLiveData() {
     const cappedNote = (liveRange.capped || (!requestedTo && returnedTo === liveRange.latest))
       ? ' through ' + returnedTo + ' (today excluded)'
       : '';
-    liveMsg(c
+    const history = d._meta && d._meta.history;
+    const historyNote = history
+      ? ` History through ${history.through} is from snapshot "${history.snapshot}"; live scheduler data starts ${history.liveFrom}.`
+      : '';
+    liveMsg((c
       ? `Live data loaded${cappedNote} — ${c.clockin} shifts, ${c.absences} absences, ${c.timesheets} timesheets, ${c.users} users`
-      : 'Live data loaded' + cappedNote);
+      : 'Live data loaded' + cappedNote) + historyNote);
   } catch (e) {
     liveMsg('Live load failed: ' + e.message, true);
   } finally {
@@ -5796,7 +5806,21 @@ function restoreUploadSectionState() {
 // Analyzer, not just this browser. 'manual' = newest saved snapshot (the
 // WhenIWork-derived review data); 'live' = active semester's live pull.
 const STARTUP_MODES = ['manual', 'live'];
-const STARTUP_MODE_CONFIRM = 'Are you sure? This will change the default behavior for everyone.';
+// The setting is department-wide and does two things: it decides what this
+// Analyzer opens on for every manager, and where assistants' My Attendance
+// page in the Scheduler gets its figures. Each direction says what it will do.
+const STARTUP_MODE_CONFIRM = {
+  live: 'Switch this department to Live?\n\n'
+    + '• The Analyzer and assistants’ My Attendance page will use live scheduler data, right away.\n'
+    + '• History is kept: the newest saved snapshot stays the record through its last day, and live scheduler data takes over the day after. '
+    + 'Save a snapshot of your final WhenIWork reports before you switch.\n'
+    + '• With no saved snapshot, the whole semester comes from the Scheduler, and shifts with no clock-in recorded there show as missed.\n\n'
+    + 'You can switch back to Manual at any time.',
+  manual: 'Switch this department to Manual?\n\n'
+    + '• The Analyzer will open on the newest saved snapshot for everyone.\n'
+    + '• Assistants’ My Attendance page will show the newest saved snapshot only, right away, without any live scheduler data. '
+    + 'If there is no saved snapshot, assistants will see no attendance page.',
+};
 function normalizeStartupMode(mode) {
   return STARTUP_MODES.includes(mode) ? mode : 'manual';
 }
@@ -5813,15 +5837,15 @@ function renderStartupMode() {
 async function requestStartupModeChange(mode) {
   mode = normalizeStartupMode(mode);
   if (mode === analyzerStartupMode()) return false;
-  if (!confirm(STARTUP_MODE_CONFIRM)) return false;
+  if (!confirm(STARTUP_MODE_CONFIRM[mode])) return false;
   const buttons = document.querySelectorAll('.startup-mode-btn');
   buttons.forEach(b => { b.disabled = true; });
   try {
     const data = await analyzerApiCall('PUT', '/settings', { startupMode: mode });
     analyzerDepartment.startupMode = normalizeStartupMode(data && data.settings && data.settings.startupMode);
     liveMsg(analyzerDepartment.startupMode === 'live'
-      ? 'Everyone now opens on live scheduler data.'
-      : 'Everyone now opens on the newest saved snapshot.');
+      ? 'Everyone now opens on live scheduler data after the newest saved snapshot, and assistants see the same.'
+      : 'Everyone now opens on the newest saved snapshot, and assistants see it too.');
     return true;
   } catch (e) {
     liveMsg('Could not change the default: ' + e.message, true);
