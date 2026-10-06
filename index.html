@@ -4271,6 +4271,10 @@ function buildTimesheetIndex() {
       }
       if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
       if (typeof v === 'string' && v.length > 0) {
+        // A time with no zone is a wall-clock reading (the live feed's are);
+        // one with a zone is an instant (a snapshot's saved Date).
+        const wall = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/);
+        if (wall) return wallClockMs(+wall[1], +wall[2] - 1, +wall[3], +wall[4], +wall[5]) + (wall[6] ? +wall[6] * 1000 : 0);
         // Snapshot-restored dates: JSON.stringify converts Date objects to ISO strings
         const d = new Date(v);
         if (!isNaN(d.getTime())) return d.getTime();
@@ -4300,6 +4304,27 @@ function buildTimesheetIndex() {
     index[key] = merged;
   }
   return index;
+}
+
+// The instant at which the studio's clocks read a given wall time. Shift times
+// and live clock-ins are wall-clock values; turning them into instants with
+// the viewer's own timezone made the comparison with a saved clock-in (which
+// is an instant) wrong for anyone, and any server, outside the studio's zone.
+function wallClockMs(y, mo, d, h, min) {
+  let offsetMode = document.getElementById('tz-offset') ? document.getElementById('tz-offset').value : 'America/New_York';
+  if (offsetMode === 'literal') return new Date(y, mo, d, h, min).getTime();
+  const asUtc = Date.UTC(y, mo, d, h, min);
+  if (offsetMode !== 'America/New_York') return asUtc - parseFloat(offsetMode) * 3600000;
+  const offsetAt = (ms) => {
+    const p = {};
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+    }).formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
+    const hour = parseInt(p.hour, 10) === 24 ? 0 : parseInt(p.hour, 10);
+    return Date.UTC(parseInt(p.year, 10), parseInt(p.month, 10) - 1, parseInt(p.day, 10), hour, parseInt(p.minute, 10), parseInt(p.second, 10)) - ms;
+  };
+  return asUtc - offsetAt(asUtc - offsetAt(asUtc));
 }
 
 function shiftWindowMs(shift) {
@@ -4332,8 +4357,8 @@ function shiftWindowMs(shift) {
   const end   = parseTime12(timeParts[1]);
   if (!start || !end) return null;
 
-  const startMs = new Date(y, mo, d, start.h, start.min).getTime();
-  let endMs     = new Date(y, mo, d, end.h, end.min).getTime();
+  const startMs = wallClockMs(y, mo, d, start.h, start.min);
+  let endMs     = wallClockMs(y, mo, d, end.h, end.min);
   // Handle midnight crossings (e.g. 8pm–12am)
   if (endMs <= startMs) endMs += 86400000;
   return { startMs, endMs };
