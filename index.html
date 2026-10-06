@@ -1587,6 +1587,7 @@ function buildResults() {
 
   const emp = {}, detail = {};
   const rawShifts = [];
+  const detailOf = new Map(); // rawShifts entry → its row in detail[...].clockin
 
   function get(displayName) {
     const key = normName(displayName);
@@ -1622,12 +1623,13 @@ function buildResults() {
 
       const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
 
-      detail[normName(curName)].clockin.push({
+      const detailRow = {
         date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
         site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
-      });
+      };
+      detail[normName(curName)].clockin.push(detailRow);
 
-      rawShifts.push({
+      const rawShift = {
         name:curName, nameKey:normName(curName),
         date:dateStr, dateVal, dow, rawDate: _hm,
         startH: startH !== null ? startH : -1,
@@ -1639,7 +1641,9 @@ function buildResults() {
         time:timeRange,
         createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
                  : row['Created At'] ? new Date(row['Created At']).getTime() : 0
-      });
+      };
+      rawShifts.push(rawShift);
+      detailOf.set(rawShift, detailRow);
 
       e.assigned++;
       if(!hasClock) e.no_timeclock++;
@@ -1742,10 +1746,22 @@ function buildResults() {
         keeper = members.reduce((best, s) => s.createdAt > best.createdAt ? s : best, members[0]);
       }
 
-      // Omit the rest
+      // Omit the rest. An omission is a key of name, date, time and site, so
+      // a copy that shares all four with the keeper cannot be omitted by key
+      // without omitting the keeper too: such an exact copy is removed
+      // outright instead, leaving the shift counted once.
+      const keeperKey = `${keeper.nameKey}|${keeper.date}|${keeper.time}|${keeper.site}`;
       for (const s of members) {
         if (s === keeper) continue;
         const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
+        if (oKey === keeperKey) {
+          const rows = detail[s.nameKey].clockin;
+          rows.splice(rows.indexOf(detailOf.get(s)), 1);
+          rawShifts.splice(rawShifts.indexOf(s), 1);
+          emp[s.nameKey].assigned--;
+          if (!s.hasClock) emp[s.nameKey].no_timeclock--;
+          continue;
+        }
         state.omissions.add(oKey);
       }
     }
