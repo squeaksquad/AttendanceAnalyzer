@@ -866,8 +866,869 @@ body.attendance-readonly #attendance-readonly-notice { display: block !important
 </div>
 
 <script>
+// ── Attendance calculation ───────────────────────────────────────────────────
+// attendance-calc.js from the repository root, inlined here by
+// analyzer/build.mjs. It is the same file the Scheduler API scores "My
+// Attendance" with, and it defines DAYS, MONTHS, LATE_THRESHOLD_MINUTES and
+// createAttendanceEngine(). Scoring changes go in that file, not this page.
+// Attendance calculation shared by the Attendance Analyzer page and the
+// Scheduler API ("My attendance").
+//
+// There is one copy of the calculation, and this is it. The Analyzer page
+// (analyzer/page.html) has this file inlined by its build and binds
+// createAttendanceEngine() to its own `state`; the server calls
+// computeAttendance(), which builds a state from its input and runs the same
+// engine. A change to how attendance is scored belongs here and nowhere else.
+//
+// Input is the WhenIWork report shapes the Analyzer has always consumed, which
+// is also what GET /analyzer/live produces:
+//
+//   clockin, clockin2        "Shifts Worked" rows, one or two periods
+//   absences, absences2      "Absences" rows
+//   shifts, shifts2          "Shift Requests" rows (drops and swaps)
+//   timesheets, timesheets2  "Timesheets" rows; enable clock fixes and lateness
+//   excused                  [{ nameKey, from, to }]  ISO dates, inclusive
+//   penaltyFreeDays          ISO dates
+//   overrides                "nameKey|Jan 20, 2026|1pm – 4pm" keys a manager marked as worked
+//   strictDrops              covered drops count against attendance (default true)
+//   dateFrom, dateTo         ISO dates; either may be empty
+//   tzMode                   'America/New_York' (default), 'literal', or an hour offset
+//
+// A shift's date and clock time are wall-clock values in the studio's zone,
+// and so is a timesheet time with no zone on it (the live feed's). A timesheet
+// time with a zone (a saved snapshot's) is an instant. wallClockMs() turns the
+// first kind into the second in the studio's zone, so the comparison between
+// them is the same wherever the code runs.
+//
+// No imports and no top-level side effects: the Analyzer build
+// (analyzer/build.mjs) inlines this file into a classic script by dropping
+// the export keywords, so every top-level name here is a global on that page.
+
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const _MONTHS_EXC = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+const LATE_THRESHOLD_MINUTES = 10; // flag as late if > this many minutes after scheduled start
+
+// The calculation's functions, bound to one `state` object:
+//
+//   state   absences, absences2, clockin, clockin2, shifts, shifts2,
+//           timesheets, timesheets2, excused, penaltyFreeDays (Set),
+//           strictDrops, omissions (Set), autocorrections (Set); the engine
+//           writes results and detailMap
+//   read    { tzMode(), dateFrom(), dateTo() }, read each time they are needed,
+//           so the page can answer from its controls
+function createAttendanceEngine(state, read) {
+  function getDateFilterMs() {
+    const fromStr = read.dateFrom() || '';
+    const toStr   = read.dateTo() || '';
+    // Parse as UTC midnight to avoid timezone offset issues
+    const fromMs = fromStr ? new Date(fromStr + 'T00:00:00Z').getTime() : null;
+    const toMs   = toStr   ? new Date(toStr   + 'T23:59:59Z').getTime() : null;
+    return { fromMs, toMs };
+  }
+
+  function lastFirstToFirstLast(name) {
+    if (!name) return '';
+    name = name.toString().trim();
+    if (name.includes(',')) {
+      const parts = name.split(',');
+      return (parts.slice(1).join(',').trim() + ' ' + parts[0].trim()).trim();
+    }
+    return name;
+  }
+
+  function normName(n) { return (n||'').toString().trim().toLowerCase().replace(/\s+/g,' '); }
+
+  function parseUniversal(val) {
+      if (val === null || val === undefined || val === '') return null;
+      let offsetMode = read.tzMode() || 'America/New_York';
+    
+      let h=0, m=0, y=0, mo=0, d=0, isTimeOnly=false, isDateOnly=false;
+
+      const applyOffset = (dtObj) => {
+          if (offsetMode === 'literal') {
+              return { h: dtObj.getUTCHours(), m: dtObj.getUTCMinutes(), y: dtObj.getUTCFullYear(), mo: dtObj.getUTCMonth(), d: dtObj.getUTCDate(), dow: DAYS[dtObj.getUTCDay()] };
+          } else if (offsetMode === 'America/New_York') {
+              // Tell the browser to format the date specifically using NY Time rules (Perfect DST handling)
+              const parts = new Intl.DateTimeFormat('en-US', {
+                  timeZone: 'America/New_York',
+                  year: 'numeric', month: 'numeric', day: 'numeric',
+                  hour: 'numeric', minute: 'numeric', hour12: false
+              }).formatToParts(dtObj);
+            
+              let p = {};
+              parts.forEach(x => p[x.type] = x.value);
+            
+              let outH = parseInt(p.hour, 10);
+              if (outH === 24) outH = 0; // Fix edge cases in Intl API
+              let outMo = parseInt(p.month, 10) - 1;
+              let outY = parseInt(p.year, 10);
+              let outD = parseInt(p.day, 10);
+            
+              return { h: outH, m: parseInt(p.minute, 10), y: outY, mo: outMo, d: outD, dow: DAYS[new Date(outY, outMo, outD).getDay()] };
+          } else {
+              // Fixed Offset (-4 or -5)
+              let shifted = new Date(dtObj.getTime() + (parseFloat(offsetMode) * 3600000));
+              return { h: shifted.getUTCHours(), m: shifted.getUTCMinutes(), y: shifted.getUTCFullYear(), mo: shifted.getUTCMonth(), d: shifted.getUTCDate(), dow: DAYS[shifted.getUTCDay()] };
+          }
+      };
+
+      // 1. Excel Serial Number
+      if (typeof val === 'number') {
+          const msPerDay = 86400 * 1000;
+          // Correct Excel→Unix: serial 25569 = Jan 1 1970. The Dec 30 1899 epoch
+          // is a common off-by-one mistake that shifts every date +1 day.
+          let dt = new Date(Math.round((val - 25569) * msPerDay / 1000) * 1000);
+          return applyOffset(dt);
+      }
+
+      let s = String(val).trim();
+
+      // 2. Standalone AM/PM String (Usually from "Absences")
+      const ampm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)$/i);
+      if (ampm) {
+          h = parseInt(ampm[1], 10);
+          m = parseInt(ampm[2], 10);
+          if (ampm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+          if (ampm[3].toLowerCase() === 'am' && h === 12) h = 0;
+          return { h, m, isTimeOnly: true };
+      }
+
+      // 3. ISO String (WhenIWork normally exports these, e.g. "2026-03-08T11:30:00")
+      if (s.includes('T')) {
+          if (offsetMode === 'literal') {
+              const [dp, tp] = s.split('T');
+              const dparts = dp.split('-');
+              if (dparts.length === 3) { y = parseInt(dparts[0], 10); mo = parseInt(dparts[1], 10) - 1; d = parseInt(dparts[2], 10); }
+              if (tp) {
+                  const tparts = tp.split(':');
+                  h = parseInt(tparts[0], 10); m = parseInt(tparts[1], 10);
+              }
+              return { h, m, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()] };
+          }
+          else {
+              let safeISO = s;
+              // Force it to be read as UTC so we can accurately offset it
+              if (!safeISO.endsWith('Z') && !safeISO.match(/[+-]\d{2}:\d{2}$/)) safeISO += 'Z';
+              let dt = new Date(safeISO);
+              if (!isNaN(dt.getTime())) return applyOffset(dt);
+          }
+      }
+
+      // 4. M/D/Y Date String
+      const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (mdy) {
+          mo = parseInt(mdy[1], 10) - 1;
+          d = parseInt(mdy[2], 10);
+          y = parseInt(mdy[3], 10);
+          if (y < 100) y += 2000;
+          return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
+      }
+
+      // 4b. Bare ISO date "YYYY-MM-DD" with no time component — e.g. WhenIWork's
+      // "Shift Start Date" column. Parse the calendar parts directly and mark it
+      // date-only. Without this it falls to the fallback below, where
+      // new Date("2026-06-18") is read as UTC midnight and then formatted with
+      // local getters — rolling the day back one in western zones (EDT/EST turns
+      // 2026-06-18 into 2026-06-17). Mirrors the M/D/Y and "Mon DD, YYYY" cases.
+      const isoDate = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (isoDate) {
+          y  = parseInt(isoDate[1], 10);
+          mo = parseInt(isoDate[2], 10) - 1;
+          d  = parseInt(isoDate[3], 10);
+          return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
+      }
+
+      // 5. "Mon DD, YYYY" string (e.g. "Mar 26, 2026" from Absences export)
+      // Must be handled before the fallback: new Date("Mar 26, 2026") parses as
+      // UTC midnight, and applyOffset() would shift it back a day in EDT/EST,
+      // corrupting the date stored on absence records.
+      const monDDYYYY = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
+      if (monDDYYYY) {
+          const MONTH_MAP = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+          const mo5 = MONTH_MAP[monDDYYYY[1].toLowerCase()];
+          const d5  = parseInt(monDDYYYY[2], 10);
+          const y5  = parseInt(monDDYYYY[3], 10);
+          if (mo5 !== undefined) {
+              return { h:0, m:0, y:y5, mo:mo5, d:d5, dow: DAYS[new Date(y5, mo5, d5).getDay()], isDateOnly:true };
+          }
+      }
+
+      // 6. Fallback Default
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) {
+          return { h: dt.getHours(), m: dt.getMinutes(), y: dt.getFullYear(), mo: dt.getMonth(), d: dt.getDate(), dow: DAYS[dt.getDay()] };
+      }
+
+      return null;
+  }
+
+  function fmtTime(v) {
+      const p = parseUniversal(v);
+      if (!p || p.isDateOnly) return v ? String(v) : '';
+      const ampm = p.h < 12 ? 'am' : 'pm';
+      const h12 = p.h % 12 === 0 ? 12 : p.h % 12;
+      return p.m === 0 ? `${h12}${ampm}` : `${h12}:${String(p.m).padStart(2,'0')}${ampm}`;
+  }
+
+  function fmtDate(v) {
+      const p = parseUniversal(v);
+      if (!p || p.isTimeOnly || p.y === undefined) return v ? String(v).split('T')[0] : '';
+      return `${MONTHS[p.mo]} ${p.d}, ${p.y}`;
+  }
+
+  function shiftDateToMs(dateVal) {
+    if (dateVal instanceof Date) return dateVal.getTime();
+    if (typeof dateVal === 'number') return Math.round((dateVal - 25569) * 86400000 / 1000) * 1000;
+    return null;
+  }
+
+  function parseClockinPeriods(periods, normalizeAssignee = lastFirstToFirstLast) {
+    const assignees = [];
+    const shifts = [];
+
+    // A workbook may start with an unassigned/open group whose Assignee Name is
+    // blank. Assignee state must never carry across workbook boundaries, or those
+    // leading open rows inherit the final employee from the previous workbook.
+    for (const periodRows of periods || []) {
+      let curName = null, curTC = false;
+
+      for (const row of periodRows || []) {
+        const rawName = row['Assignee Name'];
+        const tc = row['Has Timeclock Entry'];
+        const hasDate = row['Start Date'] != null;
+
+        if (rawName != null && String(rawName).trim() !== '') {
+          curName = normalizeAssignee(rawName);
+          curTC = false;
+          if (curName) assignees.push(curName);
+        }
+
+        const tcStr = tc !== undefined && tc !== null ? String(tc).trim().toLowerCase() : null;
+        if ((tcStr === 'true' || tcStr === 'false') && !hasDate) {
+          curTC = (tcStr === 'true');
+        }
+
+        // Rows in the workbook's leading blank group are open/unassigned. Skip
+        // them until an explicit assignee header establishes ownership.
+        if (!hasDate || !curName) continue;
+
+        let hasClock = curTC;
+        if (tcStr === 'true' || tcStr === 'false') {
+          hasClock = (tcStr === 'true');
+        }
+        shifts.push({ row, name: curName, hasClock });
+      }
+    }
+
+    return { assignees, shifts };
+  }
+
+  function buildResults() {
+    // Date filter bounds — computed once for this analysis run
+    const { fromMs, toMs } = getDateFilterMs();
+    function dateInRange(dateVal) {
+      if (!fromMs && !toMs) return true;
+      const ms = shiftDateToMs(dateVal);
+      if (ms === null) return true;
+      if (fromMs && ms < fromMs) return false;
+      if (toMs   && ms > toMs)   return false;
+      return true;
+    }
+    function strDateInRange(dateStr) {
+      if (!fromMs && !toMs) return true;
+      if (!dateStr) return true;
+      const ms = new Date(dateStr).getTime();
+      if (isNaN(ms)) return true;
+      if (fromMs && ms < fromMs) return false;
+      if (toMs   && ms > toMs + 86400000) return false;
+      return true;
+    }
+
+    // Merge period 2 data into period 1 if present
+    const mergedAbsences = [...(state.absences||[]), ...(state.absences2||[])];
+    const clockinPeriods = [state.clockin||[], state.clockin2||[]];
+    const mergedClockin  = clockinPeriods.flat();
+    const mergedShifts   = [...(state.shifts||[]),   ...(state.shifts2||[])];
+
+    // Temporarily swap state arrays so the rest of buildResults works unchanged
+    const _abs = state.absences, _clk = state.clockin, _sft = state.shifts;
+    state.absences = mergedAbsences;
+    state.clockin  = mergedClockin;
+    state.shifts   = mergedShifts;
+
+    const emp = {}, detail = {};
+    const rawShifts = [];
+    const detailOf = new Map(); // rawShifts entry → its row in detail[...].clockin
+
+    function get(displayName) {
+      const key = normName(displayName);
+      if (!key) return null;
+      if (!emp[key]) {
+        emp[key] = { name:displayName.toString().trim(), assigned:0, no_timeclock:0, abs_self:0, abs_staff:0, dropped:0, covered:0, uncovered:0, picked_up:0 };
+        detail[key] = { absences:[], shifts:[], clockin:[] };
+      }
+      return emp[key];
+    }
+
+    // ── Shifts Worked ──
+    {
+      const parsedClockin = parseClockinPeriods(clockinPeriods);
+      for (const assignee of parsedClockin.assignees) get(assignee);
+
+      for (const parsedShift of parsedClockin.shifts) {
+        const row = parsedShift.row;
+        const curName = parsedShift.name;
+        const hasClock = parsedShift.hasClock;
+        const e = get(curName); if(!e) continue;
+
+        const dateVal = row['Start Date'];
+        if (!dateInRange(dateVal)) continue; // ← date filter
+        const dateStr = fmtDate(dateVal);
+        const startT = row['Start Time'] || dateVal;
+        const endT = row['End Time'];
+        
+        const _hm = parseUniversal(startT);
+        const startH = _hm ? _hm.h : null;
+        const startM = _hm ? _hm.m : null;
+        const dow = _hm ? _hm.dow : '';
+
+        const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
+
+        const detailRow = {
+          date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
+          site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
+        };
+        detail[normName(curName)].clockin.push(detailRow);
+
+        const rawShift = {
+          name:curName, nameKey:normName(curName),
+          date:dateStr, dateVal, dow, rawDate: _hm,
+          startH: startH !== null ? startH : -1,
+          startM: startM !== null ? startM : -1,
+          hasClock, site:row['Job Site Name']||'',
+          position:row['Position Name']||'',
+          notes:row['Shift Notes']||'',
+          length:row['sum(Length)']||0,
+          time:timeRange,
+          createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
+                   : row['Created At'] ? new Date(row['Created At']).getTime() : 0
+        };
+        rawShifts.push(rawShift);
+        detailOf.set(rawShift, detailRow);
+
+        e.assigned++;
+        if(!hasClock) e.no_timeclock++;
+      }
+    }
+
+    // ── Absences ──
+    for (const row of state.absences) {
+      const empName=(row['Employee']||'').toString().trim(), reporter=(row['Reporter']||'').toString().trim();
+      if(!empName) continue;
+      if(!strDateInRange(fmtDate(row['Shift Date']))) continue; // ← date filter
+      const e=get(empName); if(!e) continue;
+      const isSelf=normName(empName)===normName(reporter);
+      if(isSelf) e.abs_self++; else e.abs_staff++;
+      detail[normName(empName)].absences.push({
+        date:fmtDate(row['Shift Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`,
+        site:row['Job Site']||'', position:row['Position']||'', notice:row['Notice']||'',
+        reporter, note:row['Reporter Note']||'', action:row['Action']||'', isSelf,
+        reportedAt:row['Reported At']||row['Created At']||''
+      });
+    }
+
+    // ── Shift Requests ──
+    const coveredStatuses=new Set(['accepted','approved']);
+    for (const row of state.shifts) {
+      const assignee=(row['Assignee']||'').toString().trim();
+      const type=(row['Type']||'').toString().trim().toLowerCase();
+      const status=(row['Status']||'').toString().trim().toLowerCase();
+      const acceptedBy=(row['Accepted By']||'').toString().trim();
+      if(!assignee) continue;
+      if(!strDateInRange(fmtDate(row['Shift Start Date']))) continue; // ← date filter
+      const e=get(assignee); if(!e) continue;
+      if(type==='drop'||type==='swap') {
+        e.dropped++;
+        const wasCovered=coveredStatuses.has(status)&&acceptedBy;
+        if(wasCovered) {
+          e.covered++;
+          // Give credit to picker-upper
+          if(acceptedBy!==assignee) {
+            const picker=get(acceptedBy);
+            if(picker) {
+              picker.picked_up++;
+              detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
+            }
+          }
+        } else {
+          e.uncovered++;
+          // Uncovered drops: already present in Shifts Worked with hasClock=false,
+          // so attendance penalty is already handled — no double-counting needed.
+          // Canceled/expired swaps: also remain in Shifts Worked, handled there too.
+        }
+        // Covered/accepted drops: WhenIWork removes these from Shifts Worked entirely.
+        // They don't count against dropper's attendance per policy, so no action needed.
+        detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
+      }
+    }
+
+    // ── Auto-omit duplicate shifts ────────────────────────────────────────────
+    // Detect shifts with identical nameKey+date+startTime. For each duplicate
+    // group: keep the one with a matching absence on file; if none match, keep
+    // the most recently created. Omit the rest via state.omissions (oKey format).
+    {
+      // Build absence lookup: "nameKey|date|startMinutes" → true
+      const absenceStartKeys = new Set();
+      for (const nameKey of Object.keys(detail)) {
+        for (const a of detail[nameKey].absences) {
+          const mins = (() => {
+            const t = (a.time||'').split('–')[0].trim();
+            const m = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+            if (!m) return null;
+            let h = parseInt(m[1]), min = m[2] ? parseInt(m[2]) : 0;
+            if (m[3].toLowerCase()==='pm' && h<12) h+=12;
+            if (m[3].toLowerCase()==='am' && h===12) h=0;
+            return h*60+min;
+          })();
+          if (mins !== null) absenceStartKeys.add(`${nameKey}|${a.date}|${mins}`);
+        }
+      }
+
+      // Group rawShifts by nameKey|date|startMinutes
+      const groups = {};
+      for (const s of rawShifts) {
+        if (s.startH < 0) continue; // no time data
+        const groupKey = `${s.nameKey}|${s.date}|${s.startH*60+s.startM}`;
+        if (!groups[groupKey]) groups[groupKey] = [];
+        groups[groupKey].push(s);
+      }
+
+      for (const [groupKey, members] of Object.entries(groups)) {
+        if (members.length < 2) continue;
+
+        // Determine which to keep
+        let keeper = null;
+
+        // Priority 1: has matching absence
+        keeper = members.find(s => absenceStartKeys.has(groupKey));
+
+        // Priority 2: most recently created
+        if (!keeper) {
+          keeper = members.reduce((best, s) => s.createdAt > best.createdAt ? s : best, members[0]);
+        }
+
+        // Omit the rest. An omission is a key of name, date, time and site, so
+        // a copy that shares all four with the keeper cannot be omitted by key
+        // without omitting the keeper too: such an exact copy is removed
+        // outright instead, leaving the shift counted once.
+        const keeperKey = `${keeper.nameKey}|${keeper.date}|${keeper.time}|${keeper.site}`;
+        for (const s of members) {
+          if (s === keeper) continue;
+          const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
+          if (oKey === keeperKey) {
+            const rows = detail[s.nameKey].clockin;
+            rows.splice(rows.indexOf(detailOf.get(s)), 1);
+            rawShifts.splice(rawShifts.indexOf(s), 1);
+            emp[s.nameKey].assigned--;
+            if (!s.hasClock) emp[s.nameKey].no_timeclock--;
+            continue;
+          }
+          state.omissions.add(oKey);
+        }
+      }
+    }
+
+    const results=Object.values(emp).map(e=>{
+      // Accepted drops counted directly in assigned/no_timeclock; remove covered from denominator
+      // If strictDrops: covered drops also count against attendance (add assigned+no_timeclock per covered drop)
+      const coveredPenalty = state.strictDrops ? e.covered : 0;
+      const totalAssigned=e.assigned+e.picked_up+coveredPenalty;
+      const worked=Math.max(0,(e.assigned-e.no_timeclock)+e.picked_up);
+      const pct=totalAssigned>0?Math.round((worked/totalAssigned)*100):null;
+      return {...e, worked, total_assigned:totalAssigned, pct, lateCount:0, avgLateMinutes:0};
+    }).sort((a,b)=>a.name.localeCompare(b.name));
+
+    // Capture merged shifts before restoring (needed for P&C drop detection)
+    const mergedShiftsSnapshot = mergedShifts;
+
+    // Restore original state arrays
+    state.absences = _abs;
+    state.clockin  = _clk;
+    state.shifts   = _sft;
+
+    return {results, detailMap:detail, rawShifts, mergedShifts: mergedShiftsSnapshot, allResults: results};
+  }
+
+  function buildTimesheetIndex() {
+    // Build a lookup: nameKey -> [{startMs, endMs}] sorted by startMs
+    // Each entry is a merged continuous block of actual clock time
+    const index = {};
+    const allTimesheets = [...(state.timesheets||[]), ...(state.timesheets2||[])];
+    if (!allTimesheets.length) return index;
+
+    const raw = {};  // nameKey -> [{startMs, endMs}]
+    for (const row of allTimesheets) {
+      const fn = (row['First Name'] || '').toString().trim();
+      const ln = (row['Last Name']  || '').toString().trim();
+      if (!fn && !ln) continue;
+      const fullName = (fn + ' ' + ln).trim();
+      const key = normName(fullName);
+      if (!key) continue;
+
+      // Parse start/end — they come as JS Date objects from XLSX
+      const startVal = row['Start Time'];
+      const endVal   = row['End Time'];
+      const toMs = v => {
+        if (v instanceof Date) {
+          // XLSX cellDates:true: local time matches spreadsheet value, so getTime() is correct
+          return v.getTime();
+        }
+        if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
+        if (typeof v === 'string' && v.length > 0) {
+          // A time with no zone is a wall-clock reading (the live feed's are);
+          // one with a zone is an instant (a snapshot's saved Date).
+          const wall = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/);
+          if (wall) return wallClockMs(+wall[1], +wall[2] - 1, +wall[3], +wall[4], +wall[5]) + (wall[6] ? +wall[6] * 1000 : 0);
+          // Snapshot-restored dates: JSON.stringify converts Date objects to ISO strings
+          const d = new Date(v);
+          if (!isNaN(d.getTime())) return d.getTime();
+        }
+        return null;
+      };
+      const startMs = toMs(startVal);
+      const endMs   = toMs(endVal);
+      if (startMs === null || endMs === null) continue;
+
+      if (!raw[key]) raw[key] = [];
+      raw[key].push({ startMs, endMs });
+    }
+
+    // For each person, sort and merge overlapping/adjacent blocks (within 20 min gap)
+    const GAP = 20 * 60 * 1000;
+    for (const key of Object.keys(raw)) {
+      const entries = raw[key].sort((a, b) => a.startMs - b.startMs);
+      const merged = [];
+      for (const e of entries) {
+        if (merged.length && e.startMs <= merged[merged.length-1].endMs + GAP) {
+          merged[merged.length-1].endMs = Math.max(merged[merged.length-1].endMs, e.endMs);
+        } else {
+          merged.push({ startMs: e.startMs, endMs: e.endMs });
+        }
+      }
+      index[key] = merged;
+    }
+    return index;
+  }
+
+  // The instant at which the studio's clocks read a given wall time. Shift times
+  // and live clock-ins are wall-clock values; turning them into instants with
+  // the viewer's own timezone made the comparison with a saved clock-in (which
+  // is an instant) wrong for anyone, and any server, outside the studio's zone.
+  function wallClockMs(y, mo, d, h, min) {
+    let offsetMode = read.tzMode() || 'America/New_York';
+    if (offsetMode === 'literal') return new Date(y, mo, d, h, min).getTime();
+    const asUtc = Date.UTC(y, mo, d, h, min);
+    if (offsetMode !== 'America/New_York') return asUtc - parseFloat(offsetMode) * 3600000;
+    const offsetAt = (ms) => {
+      const p = {};
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+      }).formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
+      const hour = parseInt(p.hour, 10) === 24 ? 0 : parseInt(p.hour, 10);
+      return Date.UTC(parseInt(p.year, 10), parseInt(p.month, 10) - 1, parseInt(p.day, 10), hour, parseInt(p.minute, 10), parseInt(p.second, 10)) - ms;
+    };
+    return asUtc - offsetAt(asUtc - offsetAt(asUtc));
+  }
+
+  function shiftWindowMs(shift) {
+    // Convert a shift's date+time string to start/end ms
+    // shift.time is like "1pm – 4pm" or "7:30am – 11am"
+    // shift.date is like "Jan 20, 2026"
+    const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const dateParts = shift.date ? shift.date.match(/(\w+)\s+(\d+),\s+(\d+)/) : null;
+    if (!dateParts) return null;
+    const mo = MONTHS[dateParts[1]];
+    const d  = parseInt(dateParts[2]);
+    const y  = parseInt(dateParts[3]);
+
+    const parseTime12 = (str) => {
+      if (!str) return null;
+      str = str.trim();
+      const m = str.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+      if (!m) return null;
+      let h = parseInt(m[1]);
+      const min = m[2] ? parseInt(m[2]) : 0;
+      const ampm = m[3].toLowerCase();
+      if (ampm === 'pm' && h < 12) h += 12;
+      if (ampm === 'am' && h === 12) h = 0;
+      return { h, min };
+    };
+
+    const timeParts = shift.time ? shift.time.split('–').map(s => s.trim()) : [];
+    if (timeParts.length < 2) return null;
+    const start = parseTime12(timeParts[0]);
+    const end   = parseTime12(timeParts[1]);
+    if (!start || !end) return null;
+
+    const startMs = wallClockMs(y, mo, d, start.h, start.min);
+    let endMs     = wallClockMs(y, mo, d, end.h, end.min);
+    // Handle midnight crossings (e.g. 8pm–12am)
+    if (endMs <= startMs) endMs += 86400000;
+    return { startMs, endMs };
+  }
+
+  function recomputeEmployee(nameKey) {
+    const r = state.results.find(x => normName(x.name) === nameKey);
+    if (!r) return;
+    const d = state.detailMap[nameKey];
+    if (!d) return;
+    const activeShifts = d.clockin.filter(s => !state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`));
+
+    // Penalty-free days: unworked shifts don't count against attendance,
+    // but worked (clocked) shifts still earn full credit.
+    const pfdISO = state.penaltyFreeDays; // Set of YYYY-MM-DD strings
+    function shiftISO(s) {
+      // s.date is formatted like "Jan 20, 2026" — parse to YYYY-MM-DD for Set lookup
+      const MONTHS_IDX2 = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+      const m = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
+      if (!m) return null;
+      return `${m[3]}-${MONTHS_IDX2[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+    }
+
+    // An unworked shift is excluded from scoring if its date is a global
+    // penalty-free day OR falls in one of this worker's persisted excused ranges.
+    const penaltyShifts = activeShifts.filter(s => {
+      if (s.hasClock) return false;
+      const iso = shiftISO(s);
+      return iso && (pfdISO.has(iso) || isExcusedISO(nameKey, iso));
+    });
+    const penaltyShiftSet = new Set(penaltyShifts);
+    const scoredShifts = activeShifts.filter(s => !penaltyShiftSet.has(s));
+
+    // Covered drops normally count against attendance (strictDrops). Excused
+    // covered drops do not — so an emergency isn't penalized whether or not the
+    // dropped shift got picked up.
+    const excusedCovered = countExcusedCoveredDrops(nameKey, d);
+    const coveredPenalty2 = state.strictDrops ? Math.max(0, r.covered - excusedCovered) : 0;
+
+    r.total_assigned = scoredShifts.length + (r.picked_up || 0) + coveredPenalty2;
+    r.worked       = scoredShifts.filter(s => s.hasClock).length + r.picked_up;
+    r.no_timeclock = scoredShifts.filter(s => !s.hasClock).length;
+    r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
+    // Lateness stats (only from shifts with timesheet data)
+    const lateShifts = activeShifts.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
+    r.lateCount = lateShifts.length;
+    r.avgLateMinutes = lateShifts.length > 0 ? Math.round(lateShifts.reduce((sum, s) => sum + s.lateMinutes, 0) / lateShifts.length) : 0;
+  }
+
+  function isExcusedISO(nameKey, iso) {
+    if (!iso || !state.excused.length) return false;
+    for (const e of state.excused) {
+      if (e.nameKey === nameKey && iso >= e.from && iso <= e.to) return true;
+    }
+    return false;
+  }
+
+  function isExcused(nameKey, dateStr) {
+    return isExcusedISO(nameKey, excDateToISO(dateStr));
+  }
+
+  function excDateToISO(dateStr) {
+    const m = dateStr && dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
+    if (!m || !_MONTHS_EXC[m[1]]) return null;
+    return `${m[3]}-${_MONTHS_EXC[m[1]]}-${String(m[2]).padStart(2,'0')}`;
+  }
+
+  function countExcusedCoveredDrops(nameKey, d) {
+    if (!d || !d.shifts || !state.excused.length) return 0;
+    const coveredStatuses = new Set(['accepted', 'approved']);
+    return d.shifts.filter(s =>
+      (s.type === 'drop' || s.type === 'swap') &&
+      s.acceptedBy && coveredStatuses.has((s.status || '').toLowerCase()) &&
+      isExcused(nameKey, s.date)
+    ).length;
+  }
+
+  // Clock fixes: an unclocked shift a timesheet block covers was worked.
+  // Returns how many shifts were corrected.
+  function autoCorrectFromTimesheets() {
+    const index = buildTimesheetIndex();
+    if (!Object.keys(index).length) return 0;
+    const TOLERANCE = 15 * 60 * 1000;
+    let count = 0;
+    const affected = new Set();
+    for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+      const blocks = index[nameKey];
+      if (!blocks) continue;
+      for (const shift of detail.clockin) {
+        if (shift.hasClock) continue;
+        const sKey = `${nameKey}|${shift.date}|${shift.time}`;
+        if (state.autocorrections.has(sKey)) continue;
+        const win = shiftWindowMs(shift);
+        if (!win) continue;
+        const covered = blocks.some(b =>
+          b.startMs <= win.startMs + TOLERANCE && b.endMs >= win.endMs - TOLERANCE
+        );
+        if (covered) {
+          shift.hasClock = true;
+          state.autocorrections.add(sKey);
+          affected.add(nameKey);
+          count++;
+        }
+      }
+    }
+    for (const nameKey of affected) recomputeEmployee(nameKey);
+    return count;
+  }
+
+  // Stamp exact clock-in times and lateness on every clocked shift. Runs after
+  // autoCorrectFromTimesheets() so hasClock is fully resolved.
+  function enrichTimesheetTimes() {
+    const index = buildTimesheetIndex();
+    if (!Object.keys(index).length) return;
+    const START_TOLERANCE = 90 * 60 * 1000; // 1.5 hours (90 mins) for late arrivals
+    const END_TOLERANCE = 15 * 60 * 1000;   // 15 mins for checkout variance
+    for (const [nameKey, detail] of Object.entries(state.detailMap)) {
+      const blocks = index[nameKey];
+      if (!blocks) continue;
+      for (const shift of detail.clockin) {
+        if (!shift.hasClock) continue;
+        const win = shiftWindowMs(shift);
+        if (!win) continue;
+        const block = blocks.find(b =>
+          b.startMs <= win.startMs + START_TOLERANCE && b.endMs >= win.endMs - END_TOLERANCE
+        );
+        if (block) {
+          shift.actualClockInMs  = block.startMs;
+          shift.scheduledStartMs = win.startMs;
+          let calculatedLate = Math.round((block.startMs - win.startMs) / 60000);
+          // More than 60 mins early is a consecutive shift: already on the
+          // clock, so exactly on time for this one.
+          if (calculatedLate < -60) calculatedLate = 0;
+          shift.lateMinutes = calculatedLate;
+        }
+      }
+    }
+  }
+
+  // ── The analysis run ─────────────────────────────────────────────────────
+  // Two steps, always in this order. The page draws between and after them;
+  // computeAttendance() calls them back to back.
+
+  // Step 1: build everyone's results from the loaded reports.
+  function scoreShifts() {
+    const built = buildResults();
+    state.results   = built.results;
+    state.detailMap = built.detailMap;
+    // Recompute all employees so auto-omitted duplicates are excluded from counts
+    for (const r of state.results) recomputeEmployee(normName(r.name));
+    return built;
+  }
+
+  // Step 2: clock fixes and lateness from the timesheets, when there are any.
+  // Returns how many shifts the clock fixes corrected.
+  function applyTimesheets(built) {
+    if (!(state.timesheets && state.timesheets.length || state.timesheets2 && state.timesheets2.length)) return 0;
+    const corrected = autoCorrectFromTimesheets();
+
+    // Sync corrected hasClock values back into rawShifts.
+    if (state.autocorrections.size > 0) {
+      const correctedKeys = new Set();
+      for (const sKey of state.autocorrections) {
+        // sKey format: "nameKey|Jan 20, 2026|1pm – 4pm"
+        const parts = sKey.split('|');
+        if (parts.length < 3) continue;
+        const nameKey = parts[0], date = parts[1], timeStr = parts[2];
+        const startStr = timeStr.split('–')[0].trim();
+        const tm = startStr.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
+        if (!tm) continue;
+        let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
+        if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
+        if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
+        correctedKeys.add(`${nameKey}|${date}|${h}|${m}`);
+      }
+      for (const s of built.rawShifts) {
+        const k = `${s.nameKey}|${s.date}|${s.startH}|${s.startM}`;
+        if (correctedKeys.has(k)) s.hasClock = true;
+      }
+    }
+
+    enrichTimesheetTimes();
+    // Lateness is stamped after the clock fixes rescored people, so rescore.
+    for (const r of state.results) recomputeEmployee(normName(r.name));
+    return corrected;
+  }
+
+  return {
+    lastFirstToFirstLast, normName, parseUniversal, fmtTime, fmtDate, shiftDateToMs, getDateFilterMs,
+    parseClockinPeriods, buildResults, buildTimesheetIndex, wallClockMs, shiftWindowMs, recomputeEmployee,
+    isExcusedISO, isExcused, excDateToISO, countExcusedCoveredDrops,
+    scoreShifts, applyTimesheets,
+  };
+}
+
+function computeAttendance(input) {
+  const state = {
+    absences: input.absences || [], absences2: input.absences2 || [],
+    clockin: input.clockin || [], clockin2: input.clockin2 || [],
+    shifts: input.shifts || [], shifts2: input.shifts2 || [],
+    timesheets: input.timesheets || [], timesheets2: input.timesheets2 || [],
+    excused: input.excused || [],
+    penaltyFreeDays: new Set(input.penaltyFreeDays || []),
+    strictDrops: input.strictDrops !== false,
+    omissions: new Set(),
+    autocorrections: new Set(),
+    results: null,
+    detailMap: null,
+  };
+  const engine = createAttendanceEngine(state, {
+    tzMode: () => input.tzMode,
+    dateFrom: () => input.dateFrom,
+    dateTo: () => input.dateTo,
+  });
+
+  const built = engine.scoreShifts();
+  engine.applyTimesheets(built);
+
+  // Manual "count as worked" overrides, reapplied the way the page does after
+  // a load: mark the shift clocked, then rescore that person.
+  for (const shiftKey of input.overrides || []) {
+    const nameKey = String(shiftKey).split('|')[0];
+    const d = state.detailMap[nameKey];
+    const entry = d && d.clockin.find(s => shiftKey === `${nameKey}|${s.date}|${s.time}`);
+    if (!entry) continue;
+    entry.hasClock = true;
+    engine.recomputeEmployee(nameKey);
+  }
+
+  // How each "Shifts Worked" row was scored, by the same tests
+  // recomputeEmployee() applies, for a caller that lists shifts one by one.
+  const scoring = {};
+  for (const [nameKey, d] of Object.entries(state.detailMap)) {
+    scoring[nameKey] = d.clockin.map(s => {
+      if (state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`)) return 'omitted';
+      if (!s.hasClock) {
+        const iso = engine.excDateToISO(s.date);
+        if (iso && state.penaltyFreeDays.has(iso)) return 'penalty_free';
+        if (iso && engine.isExcusedISO(nameKey, iso)) return 'excused';
+        return 'missed';
+      }
+      return s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES ? 'late' : 'worked';
+    });
+  }
+
+  return {
+    results: state.results,
+    detailMap: state.detailMap,
+    scoring,
+    rawShifts: built.rawShifts,
+    mergedShifts: built.mergedShifts,
+    omissions: [...state.omissions],
+    autocorrections: [...state.autocorrections],
+  };
+}
 
 function toggleSidebar() {
   const sidebar = document.querySelector('.sidebar');
@@ -925,6 +1786,18 @@ const state = {
     return defaults;
   })()   // dates where absences/drops aren't penalized, but worked shifts still count
 };
+
+// The calculation's functions, working on this page's state and controls.
+const {
+  lastFirstToFirstLast, normName, parseUniversal, fmtTime, fmtDate, shiftDateToMs, getDateFilterMs,
+  parseClockinPeriods, buildResults, buildTimesheetIndex, wallClockMs, shiftWindowMs, recomputeEmployee,
+  isExcusedISO, isExcused, excDateToISO, countExcusedCoveredDrops,
+  scoreShifts, applyTimesheets,
+} = createAttendanceEngine(state, {
+  tzMode:   () => { const el = document.getElementById('tz-offset'); return el ? el.value : 'America/New_York'; },
+  dateFrom: () => document.getElementById('filter-date-from').value,
+  dateTo:   () => document.getElementById('filter-date-to').value,
+});
 let _analyzing = false; // re-entrancy guard — prevents onDateFilterChange from re-triggering analyze()
 
 // ── File loading ──────────────────────────────────────────────────────────────
@@ -1119,157 +1992,6 @@ function checkReady() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function lastFirstToFirstLast(name) {
-  if (!name) return '';
-  name = name.toString().trim();
-  if (name.includes(',')) {
-    const parts = name.split(',');
-    return (parts.slice(1).join(',').trim() + ' ' + parts[0].trim()).trim();
-  }
-  return name;
-}
-function normName(n) { return (n||'').toString().trim().toLowerCase().replace(/\s+/g,' '); }
-
-
-// ── SMART DST & TIMEZONE LOGIC ──
-function parseUniversal(val) {
-    if (val === null || val === undefined || val === '') return null;
-    let offsetMode = document.getElementById('tz-offset') ? document.getElementById('tz-offset').value : 'America/New_York';
-    
-    let h=0, m=0, y=0, mo=0, d=0, isTimeOnly=false, isDateOnly=false;
-
-    const applyOffset = (dtObj) => {
-        if (offsetMode === 'literal') {
-            return { h: dtObj.getUTCHours(), m: dtObj.getUTCMinutes(), y: dtObj.getUTCFullYear(), mo: dtObj.getUTCMonth(), d: dtObj.getUTCDate(), dow: DAYS[dtObj.getUTCDay()] };
-        } else if (offsetMode === 'America/New_York') {
-            // Tell the browser to format the date specifically using NY Time rules (Perfect DST handling)
-            const parts = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'America/New_York',
-                year: 'numeric', month: 'numeric', day: 'numeric',
-                hour: 'numeric', minute: 'numeric', hour12: false
-            }).formatToParts(dtObj);
-            
-            let p = {};
-            parts.forEach(x => p[x.type] = x.value);
-            
-            let outH = parseInt(p.hour, 10);
-            if (outH === 24) outH = 0; // Fix edge cases in Intl API
-            let outMo = parseInt(p.month, 10) - 1;
-            let outY = parseInt(p.year, 10);
-            let outD = parseInt(p.day, 10);
-            
-            return { h: outH, m: parseInt(p.minute, 10), y: outY, mo: outMo, d: outD, dow: DAYS[new Date(outY, outMo, outD).getDay()] };
-        } else {
-            // Fixed Offset (-4 or -5)
-            let shifted = new Date(dtObj.getTime() + (parseFloat(offsetMode) * 3600000));
-            return { h: shifted.getUTCHours(), m: shifted.getUTCMinutes(), y: shifted.getUTCFullYear(), mo: shifted.getUTCMonth(), d: shifted.getUTCDate(), dow: DAYS[shifted.getUTCDay()] };
-        }
-    };
-
-    // 1. Excel Serial Number
-    if (typeof val === 'number') {
-        const msPerDay = 86400 * 1000;
-        // Correct Excel→Unix: serial 25569 = Jan 1 1970. The Dec 30 1899 epoch
-        // is a common off-by-one mistake that shifts every date +1 day.
-        let dt = new Date(Math.round((val - 25569) * msPerDay / 1000) * 1000);
-        return applyOffset(dt);
-    }
-
-    let s = String(val).trim();
-
-    // 2. Standalone AM/PM String (Usually from "Absences")
-    const ampm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)$/i);
-    if (ampm) {
-        h = parseInt(ampm[1], 10);
-        m = parseInt(ampm[2], 10);
-        if (ampm[3].toLowerCase() === 'pm' && h < 12) h += 12;
-        if (ampm[3].toLowerCase() === 'am' && h === 12) h = 0;
-        return { h, m, isTimeOnly: true };
-    }
-
-    // 3. ISO String (WhenIWork normally exports these, e.g. "2026-03-08T11:30:00")
-    if (s.includes('T')) {
-        if (offsetMode === 'literal') {
-            const [dp, tp] = s.split('T');
-            const dparts = dp.split('-');
-            if (dparts.length === 3) { y = parseInt(dparts[0], 10); mo = parseInt(dparts[1], 10) - 1; d = parseInt(dparts[2], 10); }
-            if (tp) {
-                const tparts = tp.split(':');
-                h = parseInt(tparts[0], 10); m = parseInt(tparts[1], 10);
-            }
-            return { h, m, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()] };
-        }
-        else {
-            let safeISO = s;
-            // Force it to be read as UTC so we can accurately offset it
-            if (!safeISO.endsWith('Z') && !safeISO.match(/[+-]\d{2}:\d{2}$/)) safeISO += 'Z';
-            let dt = new Date(safeISO);
-            if (!isNaN(dt.getTime())) return applyOffset(dt);
-        }
-    }
-
-    // 4. M/D/Y Date String
-    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-    if (mdy) {
-        mo = parseInt(mdy[1], 10) - 1;
-        d = parseInt(mdy[2], 10);
-        y = parseInt(mdy[3], 10);
-        if (y < 100) y += 2000;
-        return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
-    }
-
-    // 4b. Bare ISO date "YYYY-MM-DD" with no time component — e.g. WhenIWork's
-    // "Shift Start Date" column. Parse the calendar parts directly and mark it
-    // date-only. Without this it falls to the fallback below, where
-    // new Date("2026-06-18") is read as UTC midnight and then formatted with
-    // local getters — rolling the day back one in western zones (EDT/EST turns
-    // 2026-06-18 into 2026-06-17). Mirrors the M/D/Y and "Mon DD, YYYY" cases.
-    const isoDate = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (isoDate) {
-        y  = parseInt(isoDate[1], 10);
-        mo = parseInt(isoDate[2], 10) - 1;
-        d  = parseInt(isoDate[3], 10);
-        return { h:0, m:0, y, mo, d, dow: DAYS[new Date(y, mo, d).getDay()], isDateOnly: true };
-    }
-
-    // 5. "Mon DD, YYYY" string (e.g. "Mar 26, 2026" from Absences export)
-    // Must be handled before the fallback: new Date("Mar 26, 2026") parses as
-    // UTC midnight, and applyOffset() would shift it back a day in EDT/EST,
-    // corrupting the date stored on absence records.
-    const monDDYYYY = s.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
-    if (monDDYYYY) {
-        const MONTH_MAP = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-        const mo5 = MONTH_MAP[monDDYYYY[1].toLowerCase()];
-        const d5  = parseInt(monDDYYYY[2], 10);
-        const y5  = parseInt(monDDYYYY[3], 10);
-        if (mo5 !== undefined) {
-            return { h:0, m:0, y:y5, mo:mo5, d:d5, dow: DAYS[new Date(y5, mo5, d5).getDay()], isDateOnly:true };
-        }
-    }
-
-    // 6. Fallback Default
-    const dt = new Date(s);
-    if (!isNaN(dt.getTime())) {
-        return { h: dt.getHours(), m: dt.getMinutes(), y: dt.getFullYear(), mo: dt.getMonth(), d: dt.getDate(), dow: DAYS[dt.getDay()] };
-    }
-
-    return null;
-}
-
-function fmtTime(v) {
-    const p = parseUniversal(v);
-    if (!p || p.isDateOnly) return v ? String(v) : '';
-    const ampm = p.h < 12 ? 'am' : 'pm';
-    const h12 = p.h % 12 === 0 ? 12 : p.h % 12;
-    return p.m === 0 ? `${h12}${ampm}` : `${h12}:${String(p.m).padStart(2,'0')}${ampm}`;
-}
-
-function fmtDate(v) {
-    const p = parseUniversal(v);
-    if (!p || p.isTimeOnly || p.y === undefined) return v ? String(v).split('T')[0] : '';
-    return `${MONTHS[p.mo]} ${p.d}, ${p.y}`;
-}
-
 // Format a full timestamp (Date object, ISO/local string, Excel serial, or WiW
 // string) for display, e.g. "Mar 12, 2026, 3:45 PM". Empty in → '';
 // unparseable in → the raw value. Used to surface drop/absence event times.
@@ -1283,8 +2005,6 @@ function fmtTimestamp(v) {
 }
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-const LATE_THRESHOLD_MINUTES = 10; // flag as late if > this many minutes after scheduled start
 
 function fmtActualClockIn(ms) {
   if (!ms) return '';
@@ -1346,21 +2066,6 @@ function clearDateFilter() {
   onDateFilterChange();
 }
 
-function getDateFilterMs() {
-  const fromStr = document.getElementById('filter-date-from').value;
-  const toStr   = document.getElementById('filter-date-to').value;
-  // Parse as UTC midnight to avoid timezone offset issues
-  const fromMs = fromStr ? new Date(fromStr + 'T00:00:00Z').getTime() : null;
-  const toMs   = toStr   ? new Date(toStr   + 'T23:59:59Z').getTime() : null;
-  return { fromMs, toMs };
-}
-
-function shiftDateToMs(dateVal) {
-  if (dateVal instanceof Date) return dateVal.getTime();
-  if (typeof dateVal === 'number') return Math.round((dateVal - 25569) * 86400000 / 1000) * 1000;
-  return null;
-}
-
 function analyze() {
   if (_analyzing) return; // prevent re-entrant calls from onDateFilterChange
   _analyzing = true;
@@ -1405,16 +2110,11 @@ function _analyzeInner() {
 
     // ── Main pass: buildResults now runs with date filter correctly applied ──
     state.omissions = new Set(); // reset before main pass — probe pass above may have populated it
-    const built = buildResults();
-    state.results   = built.results;
-    state.detailMap = built.detailMap;
+    const built = scoreShifts();
     state.att.openRows.clear();
     state.pc.openRows.clear();
     state.shiftFilter = {};
     updateDateRangePill(built.rawShifts);
-
-    // Recompute all employees so auto-omitted duplicates are excluded from counts
-    for (const r of state.results) recomputeEmployee(normName(r.name));
 
     // ── Step 2: Resolve date range (now inputs are populated) ─────────────
     let rangeFrom = null, rangeTo = null;
@@ -1438,46 +2138,21 @@ function _analyzeInner() {
     state.inferredClosures = inferClosuresFromData(built.rawShifts, built.mergedShifts, rangeFrom, rangeTo);
 
     // ── Step 5: Apply timesheet clock corrections BEFORE building P&C ────
-    // autoCorrectAfterTimesheetLoad mutates state.detailMap[key].clockin[*].hasClock.
-    // Run it now so P&C percentages reflect corrected clock-ins, not raw data.
-    if (state.timesheets && state.timesheets.length || state.timesheets2 && state.timesheets2.length) {
-      autoCorrectAfterTimesheetLoad();
-      // Sync corrected hasClock values back into rawShifts.
-      // Join key: nameKey + date + startH + startM (detailMap clockin stores fmtTime which
-      // encodes the same hour/minute, so we parse it back for matching).
-      // Simpler: build a lookup from autocorrections set which stores "nameKey|date|time".
-      // rawShifts don't have the formatted time, so instead re-derive from startH/startM.
-      if (state.autocorrections.size > 0) {
-        // Build a set of "nameKey|date|startH|startM" for corrected shifts
-        const correctedKeys = new Set();
-        for (const sKey of state.autocorrections) {
-          // sKey format: "nameKey|Jan 20, 2026|1pm – 4pm"
-          const parts = sKey.split('|');
-          if (parts.length < 3) continue;
-          const nameKey = parts[0], date = parts[1], timeStr = parts[2];
-          // Parse startH/startM from the time string (e.g. "1pm" or "7:30am")
-          const startStr = timeStr.split('–')[0].trim();
-          const tm = startStr.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
-          if (!tm) continue;
-          let h = parseInt(tm[1]), m = tm[2] ? parseInt(tm[2]) : 0;
-          if (tm[3].toLowerCase() === 'pm' && h < 12) h += 12;
-          if (tm[3].toLowerCase() === 'am' && h === 12) h = 0;
-          correctedKeys.add(`${nameKey}|${date}|${h}|${m}`);
-        }
-        for (const s of built.rawShifts) {
-          const k = `${s.nameKey}|${s.date}|${s.startH}|${s.startM}`;
-          if (correctedKeys.has(k)) s.hasClock = true;
-        }
-      }
-      // Enrich all clocked shifts with exact clock-in times + lateness deltas
-      enrichTimesheetTimes();
-      // Now recompute lateCount/avgLateMinutes for every employee — enrichTimesheetTimes
-      // stamps lateMinutes on shifts, but recomputeEmployee() was called earlier (during
-      // autocorrection) before those values existed. One more pass fixes all lateness stats.
-      if (state.results) {
-        for (const r of state.results) {
-          recomputeEmployee(normName(r.name));
-        }
+    // applyTimesheets() marks shifts a timesheet block covers as worked, stamps
+    // exact clock-in times and lateness, and rescores everyone. Run it now so
+    // P&C percentages reflect corrected clock-ins, not raw data.
+    const clockFixes = applyTimesheets(built);
+    if (clockFixes > 0) {
+      renderAttRows();
+      refreshAttStats();
+      updateCorrectionCount();
+      // Show a subtle auto-applied banner on the correct button
+      const btn = document.getElementById('correct-btn');
+      if (btn) {
+        btn.innerHTML = 'Clock Fixes Auto-Applied (' + clockFixes + ')';
+        btn.style.background = 'var(--info-bg)';
+        btn.style.borderColor = 'var(--accent-soft)';
+        btn.style.color = 'var(--accent-hover)';
       }
     }
 
@@ -1509,283 +2184,6 @@ function _analyzeInner() {
     document.getElementById('main').insertAdjacentHTML('afterbegin',`<div class="error-box">⚠ ${err.message}</div>`);
     console.error(err);
   }
-}
-
-function parseClockinPeriods(periods, normalizeAssignee = lastFirstToFirstLast) {
-  const assignees = [];
-  const shifts = [];
-
-  // A workbook may start with an unassigned/open group whose Assignee Name is
-  // blank. Assignee state must never carry across workbook boundaries, or those
-  // leading open rows inherit the final employee from the previous workbook.
-  for (const periodRows of periods || []) {
-    let curName = null, curTC = false;
-
-    for (const row of periodRows || []) {
-      const rawName = row['Assignee Name'];
-      const tc = row['Has Timeclock Entry'];
-      const hasDate = row['Start Date'] != null;
-
-      if (rawName != null && String(rawName).trim() !== '') {
-        curName = normalizeAssignee(rawName);
-        curTC = false;
-        if (curName) assignees.push(curName);
-      }
-
-      const tcStr = tc !== undefined && tc !== null ? String(tc).trim().toLowerCase() : null;
-      if ((tcStr === 'true' || tcStr === 'false') && !hasDate) {
-        curTC = (tcStr === 'true');
-      }
-
-      // Rows in the workbook's leading blank group are open/unassigned. Skip
-      // them until an explicit assignee header establishes ownership.
-      if (!hasDate || !curName) continue;
-
-      let hasClock = curTC;
-      if (tcStr === 'true' || tcStr === 'false') {
-        hasClock = (tcStr === 'true');
-      }
-      shifts.push({ row, name: curName, hasClock });
-    }
-  }
-
-  return { assignees, shifts };
-}
-
-function buildResults() {
-  // Date filter bounds — computed once for this analysis run
-  const { fromMs, toMs } = getDateFilterMs();
-  function dateInRange(dateVal) {
-    if (!fromMs && !toMs) return true;
-    const ms = shiftDateToMs(dateVal);
-    if (ms === null) return true;
-    if (fromMs && ms < fromMs) return false;
-    if (toMs   && ms > toMs)   return false;
-    return true;
-  }
-  function strDateInRange(dateStr) {
-    if (!fromMs && !toMs) return true;
-    if (!dateStr) return true;
-    const ms = new Date(dateStr).getTime();
-    if (isNaN(ms)) return true;
-    if (fromMs && ms < fromMs) return false;
-    if (toMs   && ms > toMs + 86400000) return false;
-    return true;
-  }
-
-  // Merge period 2 data into period 1 if present
-  const mergedAbsences = [...(state.absences||[]), ...(state.absences2||[])];
-  const clockinPeriods = [state.clockin||[], state.clockin2||[]];
-  const mergedClockin  = clockinPeriods.flat();
-  const mergedShifts   = [...(state.shifts||[]),   ...(state.shifts2||[])];
-
-  // Temporarily swap state arrays so the rest of buildResults works unchanged
-  const _abs = state.absences, _clk = state.clockin, _sft = state.shifts;
-  state.absences = mergedAbsences;
-  state.clockin  = mergedClockin;
-  state.shifts   = mergedShifts;
-
-  const emp = {}, detail = {};
-  const rawShifts = [];
-  const detailOf = new Map(); // rawShifts entry → its row in detail[...].clockin
-
-  function get(displayName) {
-    const key = normName(displayName);
-    if (!key) return null;
-    if (!emp[key]) {
-      emp[key] = { name:displayName.toString().trim(), assigned:0, no_timeclock:0, abs_self:0, abs_staff:0, dropped:0, covered:0, uncovered:0, picked_up:0 };
-      detail[key] = { absences:[], shifts:[], clockin:[] };
-    }
-    return emp[key];
-  }
-
-  // ── Shifts Worked ──
-  {
-    const parsedClockin = parseClockinPeriods(clockinPeriods);
-    for (const assignee of parsedClockin.assignees) get(assignee);
-
-    for (const parsedShift of parsedClockin.shifts) {
-      const row = parsedShift.row;
-      const curName = parsedShift.name;
-      const hasClock = parsedShift.hasClock;
-      const e = get(curName); if(!e) continue;
-
-      const dateVal = row['Start Date'];
-      if (!dateInRange(dateVal)) continue; // ← date filter
-      const dateStr = fmtDate(dateVal);
-      const startT = row['Start Time'] || dateVal;
-      const endT = row['End Time'];
-        
-      const _hm = parseUniversal(startT);
-      const startH = _hm ? _hm.h : null;
-      const startM = _hm ? _hm.m : null;
-      const dow = _hm ? _hm.dow : '';
-
-      const timeRange = (startT && endT) ? `${fmtTime(startT)} – ${fmtTime(endT)}` : (fmtTime(startT) || "Unknown Time");
-
-      const detailRow = {
-        date:dateStr, time:timeRange, length:row['sum(Length)']?`${row['sum(Length)']}h`:'',
-        site:row['Job Site Name']||'', position:row['Position Name']||'', hasClock, notes:row['Shift Notes']||''
-      };
-      detail[normName(curName)].clockin.push(detailRow);
-
-      const rawShift = {
-        name:curName, nameKey:normName(curName),
-        date:dateStr, dateVal, dow, rawDate: _hm,
-        startH: startH !== null ? startH : -1,
-        startM: startM !== null ? startM : -1,
-        hasClock, site:row['Job Site Name']||'',
-        position:row['Position Name']||'',
-        notes:row['Shift Notes']||'',
-        length:row['sum(Length)']||0,
-        time:timeRange,
-        createdAt: row['Created At'] instanceof Date ? row['Created At'].getTime()
-                 : row['Created At'] ? new Date(row['Created At']).getTime() : 0
-      };
-      rawShifts.push(rawShift);
-      detailOf.set(rawShift, detailRow);
-
-      e.assigned++;
-      if(!hasClock) e.no_timeclock++;
-    }
-  }
-
-  // ── Absences ──
-  for (const row of state.absences) {
-    const empName=(row['Employee']||'').toString().trim(), reporter=(row['Reporter']||'').toString().trim();
-    if(!empName) continue;
-    if(!strDateInRange(fmtDate(row['Shift Date']))) continue; // ← date filter
-    const e=get(empName); if(!e) continue;
-    const isSelf=normName(empName)===normName(reporter);
-    if(isSelf) e.abs_self++; else e.abs_staff++;
-    detail[normName(empName)].absences.push({
-      date:fmtDate(row['Shift Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`,
-      site:row['Job Site']||'', position:row['Position']||'', notice:row['Notice']||'',
-      reporter, note:row['Reporter Note']||'', action:row['Action']||'', isSelf,
-      reportedAt:row['Reported At']||row['Created At']||''
-    });
-  }
-
-  // ── Shift Requests ──
-  const coveredStatuses=new Set(['accepted','approved']);
-  for (const row of state.shifts) {
-    const assignee=(row['Assignee']||'').toString().trim();
-    const type=(row['Type']||'').toString().trim().toLowerCase();
-    const status=(row['Status']||'').toString().trim().toLowerCase();
-    const acceptedBy=(row['Accepted By']||'').toString().trim();
-    if(!assignee) continue;
-    if(!strDateInRange(fmtDate(row['Shift Start Date']))) continue; // ← date filter
-    const e=get(assignee); if(!e) continue;
-    if(type==='drop'||type==='swap') {
-      e.dropped++;
-      const wasCovered=coveredStatuses.has(status)&&acceptedBy;
-      if(wasCovered) {
-        e.covered++;
-        // Give credit to picker-upper
-        if(acceptedBy!==assignee) {
-          const picker=get(acceptedBy);
-          if(picker) {
-            picker.picked_up++;
-            detail[normName(acceptedBy)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:'pickup', status:row['Status']||'', coveredFor:assignee, acceptedBy:'', message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
-          }
-        }
-      } else {
-        e.uncovered++;
-        // Uncovered drops: already present in Shifts Worked with hasClock=false,
-        // so attendance penalty is already handled — no double-counting needed.
-        // Canceled/expired swaps: also remain in Shifts Worked, handled there too.
-      }
-      // Covered/accepted drops: WhenIWork removes these from Shifts Worked entirely.
-      // They don't count against dropper's attendance per policy, so no action needed.
-      detail[normName(assignee)].shifts.push({ date:fmtDate(row['Shift Start Date']), time:`${fmtTime(row['Shift Start Time'])} – ${fmtTime(row['Shift End Time'])}`, site:row['Job Site']||'', position:row['Position']||'', type:type==='swap'?'swap':'drop', status:row['Status']||'', coveredFor:'', acceptedBy, message:row['Message']||'', createdAt:row['Created At']||'', acceptedAt:row['Accepted At']||'', decidedAt:row['Approved / Denied At']||'' });
-    }
-  }
-
-  // ── Auto-omit duplicate shifts ────────────────────────────────────────────
-  // Detect shifts with identical nameKey+date+startTime. For each duplicate
-  // group: keep the one with a matching absence on file; if none match, keep
-  // the most recently created. Omit the rest via state.omissions (oKey format).
-  {
-    // Build absence lookup: "nameKey|date|startMinutes" → true
-    const absenceStartKeys = new Set();
-    for (const nameKey of Object.keys(detail)) {
-      for (const a of detail[nameKey].absences) {
-        const mins = (() => {
-          const t = (a.time||'').split('–')[0].trim();
-          const m = t.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
-          if (!m) return null;
-          let h = parseInt(m[1]), min = m[2] ? parseInt(m[2]) : 0;
-          if (m[3].toLowerCase()==='pm' && h<12) h+=12;
-          if (m[3].toLowerCase()==='am' && h===12) h=0;
-          return h*60+min;
-        })();
-        if (mins !== null) absenceStartKeys.add(`${nameKey}|${a.date}|${mins}`);
-      }
-    }
-
-    // Group rawShifts by nameKey|date|startMinutes
-    const groups = {};
-    for (const s of rawShifts) {
-      if (s.startH < 0) continue; // no time data
-      const groupKey = `${s.nameKey}|${s.date}|${s.startH*60+s.startM}`;
-      if (!groups[groupKey]) groups[groupKey] = [];
-      groups[groupKey].push(s);
-    }
-
-    for (const [groupKey, members] of Object.entries(groups)) {
-      if (members.length < 2) continue;
-
-      // Determine which to keep
-      let keeper = null;
-
-      // Priority 1: has matching absence
-      keeper = members.find(s => absenceStartKeys.has(groupKey));
-
-      // Priority 2: most recently created
-      if (!keeper) {
-        keeper = members.reduce((best, s) => s.createdAt > best.createdAt ? s : best, members[0]);
-      }
-
-      // Omit the rest. An omission is a key of name, date, time and site, so
-      // a copy that shares all four with the keeper cannot be omitted by key
-      // without omitting the keeper too: such an exact copy is removed
-      // outright instead, leaving the shift counted once.
-      const keeperKey = `${keeper.nameKey}|${keeper.date}|${keeper.time}|${keeper.site}`;
-      for (const s of members) {
-        if (s === keeper) continue;
-        const oKey = `${s.nameKey}|${s.date}|${s.time}|${s.site}`;
-        if (oKey === keeperKey) {
-          const rows = detail[s.nameKey].clockin;
-          rows.splice(rows.indexOf(detailOf.get(s)), 1);
-          rawShifts.splice(rawShifts.indexOf(s), 1);
-          emp[s.nameKey].assigned--;
-          if (!s.hasClock) emp[s.nameKey].no_timeclock--;
-          continue;
-        }
-        state.omissions.add(oKey);
-      }
-    }
-  }
-
-  const results=Object.values(emp).map(e=>{
-    // Accepted drops counted directly in assigned/no_timeclock; remove covered from denominator
-    // If strictDrops: covered drops also count against attendance (add assigned+no_timeclock per covered drop)
-    const coveredPenalty = state.strictDrops ? e.covered : 0;
-    const totalAssigned=e.assigned+e.picked_up+coveredPenalty;
-    const worked=Math.max(0,(e.assigned-e.no_timeclock)+e.picked_up);
-    const pct=totalAssigned>0?Math.round((worked/totalAssigned)*100):null;
-    return {...e, worked, total_assigned:totalAssigned, pct, lateCount:0, avgLateMinutes:0};
-  }).sort((a,b)=>a.name.localeCompare(b.name));
-
-  // Capture merged shifts before restoring (needed for P&C drop detection)
-  const mergedShiftsSnapshot = mergedShifts;
-
-  // Restore original state arrays
-  state.absences = _abs;
-  state.clockin  = _clk;
-  state.shifts   = _sft;
-
-  return {results, detailMap:detail, rawShifts, mergedShifts: mergedShiftsSnapshot, allResults: results};
 }
 
 // ── Prep/Close analysis ───────────────────────────────────────────────────────
@@ -3095,50 +3493,6 @@ async function omitShift(shiftKey, nameKey) {
   refreshAttStats();
 }
 
-function recomputeEmployee(nameKey) {
-  const r = state.results.find(x => normName(x.name) === nameKey);
-  if (!r) return;
-  const d = state.detailMap[nameKey];
-  if (!d) return;
-  const activeShifts = d.clockin.filter(s => !state.omissions.has(`${nameKey}|${s.date}|${s.time}|${s.site}`));
-
-  // Penalty-free days: unworked shifts don't count against attendance,
-  // but worked (clocked) shifts still earn full credit.
-  const pfdISO = state.penaltyFreeDays; // Set of YYYY-MM-DD strings
-  function shiftISO(s) {
-    // s.date is formatted like "Jan 20, 2026" — parse to YYYY-MM-DD for Set lookup
-    const MONTHS_IDX2 = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
-    const m = s.date && s.date.match(/(\w+)\s+(\d+),\s+(\d+)/);
-    if (!m) return null;
-    return `${m[3]}-${MONTHS_IDX2[m[1]]}-${String(m[2]).padStart(2,'0')}`;
-  }
-
-  // An unworked shift is excluded from scoring if its date is a global
-  // penalty-free day OR falls in one of this worker's persisted excused ranges.
-  const penaltyShifts = activeShifts.filter(s => {
-    if (s.hasClock) return false;
-    const iso = shiftISO(s);
-    return iso && (pfdISO.has(iso) || isExcusedISO(nameKey, iso));
-  });
-  const penaltyShiftSet = new Set(penaltyShifts);
-  const scoredShifts = activeShifts.filter(s => !penaltyShiftSet.has(s));
-
-  // Covered drops normally count against attendance (strictDrops). Excused
-  // covered drops do not — so an emergency isn't penalized whether or not the
-  // dropped shift got picked up.
-  const excusedCovered = countExcusedCoveredDrops(nameKey, d);
-  const coveredPenalty2 = state.strictDrops ? Math.max(0, r.covered - excusedCovered) : 0;
-
-  r.total_assigned = scoredShifts.length + (r.picked_up || 0) + coveredPenalty2;
-  r.worked       = scoredShifts.filter(s => s.hasClock).length + r.picked_up;
-  r.no_timeclock = scoredShifts.filter(s => !s.hasClock).length;
-  r.pct = r.total_assigned > 0 ? Math.round((r.worked / r.total_assigned) * 100) : null;
-  // Lateness stats (only from shifts with timesheet data)
-  const lateShifts = activeShifts.filter(s => s.hasClock && s.lateMinutes !== undefined && s.lateMinutes > LATE_THRESHOLD_MINUTES);
-  r.lateCount = lateShifts.length;
-  r.avgLateMinutes = lateShifts.length > 0 ? Math.round(lateShifts.reduce((sum, s) => sum + s.lateMinutes, 0) / lateShifts.length) : 0;
-}
-
 function refreshAttStats() {
   const flagged = state.results.filter(r => r.pct !== null && r.pct < 80).length;
   const cards = document.querySelectorAll('.stat-card .val');
@@ -4245,207 +4599,6 @@ async function exportWorkerPDF(nameKey, returnBlob) {
 
 // ── WhenIWork Clock Discrepancy Correction ────────────────────────────────────
 
-function buildTimesheetIndex() {
-  // Build a lookup: nameKey -> [{startMs, endMs}] sorted by startMs
-  // Each entry is a merged continuous block of actual clock time
-  const index = {};
-  const allTimesheets = [...(state.timesheets||[]), ...(state.timesheets2||[])];
-  if (!allTimesheets.length) return index;
-
-  const raw = {};  // nameKey -> [{startMs, endMs}]
-  for (const row of allTimesheets) {
-    const fn = (row['First Name'] || '').toString().trim();
-    const ln = (row['Last Name']  || '').toString().trim();
-    if (!fn && !ln) continue;
-    const fullName = (fn + ' ' + ln).trim();
-    const key = normName(fullName);
-    if (!key) continue;
-
-    // Parse start/end — they come as JS Date objects from XLSX
-    const startVal = row['Start Time'];
-    const endVal   = row['End Time'];
-    const toMs = v => {
-      if (v instanceof Date) {
-        // XLSX cellDates:true: local time matches spreadsheet value, so getTime() is correct
-        return v.getTime();
-      }
-      if (typeof v === 'number') return Math.round((v - 25569) * 86400000 / 1000) * 1000;
-      if (typeof v === 'string' && v.length > 0) {
-        // A time with no zone is a wall-clock reading (the live feed's are);
-        // one with a zone is an instant (a snapshot's saved Date).
-        const wall = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/);
-        if (wall) return wallClockMs(+wall[1], +wall[2] - 1, +wall[3], +wall[4], +wall[5]) + (wall[6] ? +wall[6] * 1000 : 0);
-        // Snapshot-restored dates: JSON.stringify converts Date objects to ISO strings
-        const d = new Date(v);
-        if (!isNaN(d.getTime())) return d.getTime();
-      }
-      return null;
-    };
-    const startMs = toMs(startVal);
-    const endMs   = toMs(endVal);
-    if (startMs === null || endMs === null) continue;
-
-    if (!raw[key]) raw[key] = [];
-    raw[key].push({ startMs, endMs });
-  }
-
-  // For each person, sort and merge overlapping/adjacent blocks (within 20 min gap)
-  const GAP = 20 * 60 * 1000;
-  for (const key of Object.keys(raw)) {
-    const entries = raw[key].sort((a, b) => a.startMs - b.startMs);
-    const merged = [];
-    for (const e of entries) {
-      if (merged.length && e.startMs <= merged[merged.length-1].endMs + GAP) {
-        merged[merged.length-1].endMs = Math.max(merged[merged.length-1].endMs, e.endMs);
-      } else {
-        merged.push({ startMs: e.startMs, endMs: e.endMs });
-      }
-    }
-    index[key] = merged;
-  }
-  return index;
-}
-
-// The instant at which the studio's clocks read a given wall time. Shift times
-// and live clock-ins are wall-clock values; turning them into instants with
-// the viewer's own timezone made the comparison with a saved clock-in (which
-// is an instant) wrong for anyone, and any server, outside the studio's zone.
-function wallClockMs(y, mo, d, h, min) {
-  let offsetMode = document.getElementById('tz-offset') ? document.getElementById('tz-offset').value : 'America/New_York';
-  if (offsetMode === 'literal') return new Date(y, mo, d, h, min).getTime();
-  const asUtc = Date.UTC(y, mo, d, h, min);
-  if (offsetMode !== 'America/New_York') return asUtc - parseFloat(offsetMode) * 3600000;
-  const offsetAt = (ms) => {
-    const p = {};
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York', year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
-    }).formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
-    const hour = parseInt(p.hour, 10) === 24 ? 0 : parseInt(p.hour, 10);
-    return Date.UTC(parseInt(p.year, 10), parseInt(p.month, 10) - 1, parseInt(p.day, 10), hour, parseInt(p.minute, 10), parseInt(p.second, 10)) - ms;
-  };
-  return asUtc - offsetAt(asUtc - offsetAt(asUtc));
-}
-
-function shiftWindowMs(shift) {
-  // Convert a shift's date+time string to start/end ms
-  // shift.time is like "1pm – 4pm" or "7:30am – 11am"
-  // shift.date is like "Jan 20, 2026"
-  const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
-  const dateParts = shift.date ? shift.date.match(/(\w+)\s+(\d+),\s+(\d+)/) : null;
-  if (!dateParts) return null;
-  const mo = MONTHS[dateParts[1]];
-  const d  = parseInt(dateParts[2]);
-  const y  = parseInt(dateParts[3]);
-
-  const parseTime12 = (str) => {
-    if (!str) return null;
-    str = str.trim();
-    const m = str.match(/^(\d+)(?::(\d+))?\s*(am|pm)$/i);
-    if (!m) return null;
-    let h = parseInt(m[1]);
-    const min = m[2] ? parseInt(m[2]) : 0;
-    const ampm = m[3].toLowerCase();
-    if (ampm === 'pm' && h < 12) h += 12;
-    if (ampm === 'am' && h === 12) h = 0;
-    return { h, min };
-  };
-
-  const timeParts = shift.time ? shift.time.split('–').map(s => s.trim()) : [];
-  if (timeParts.length < 2) return null;
-  const start = parseTime12(timeParts[0]);
-  const end   = parseTime12(timeParts[1]);
-  if (!start || !end) return null;
-
-  const startMs = wallClockMs(y, mo, d, start.h, start.min);
-  let endMs     = wallClockMs(y, mo, d, end.h, end.min);
-  // Handle midnight crossings (e.g. 8pm–12am)
-  if (endMs <= startMs) endMs += 86400000;
-  return { startMs, endMs };
-}
-
-function autoCorrectAfterTimesheetLoad() {
-  // Don't re-run if corrections already exist
-  if (state.autocorrections && state.autocorrections.size > 0) return;
-  const index = buildTimesheetIndex();
-  if (!Object.keys(index).length) return;
-  const TOLERANCE = 15 * 60 * 1000;
-  let count = 0;
-  const affected = new Set();
-  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
-    const blocks = index[nameKey];
-    if (!blocks) continue;
-    for (const shift of detail.clockin) {
-      if (shift.hasClock) continue;
-      const sKey = `${nameKey}|${shift.date}|${shift.time}`;
-      if (state.autocorrections.has(sKey)) continue;
-      const win = shiftWindowMs(shift);
-      if (!win) continue;
-      const covered = blocks.some(b =>
-        b.startMs <= win.startMs + TOLERANCE && b.endMs >= win.endMs - TOLERANCE
-      );
-      if (covered) {
-        shift.hasClock = true;
-        state.autocorrections.add(sKey);
-        affected.add(nameKey);
-        count++;
-      }
-    }
-  }
-  for (const nameKey of affected) recomputeEmployee(nameKey);
-  if (count > 0) {
-    renderAttRows();
-    refreshAttStats();
-    updateCorrectionCount();
-    // Show a subtle auto-applied banner on the correct button
-    const btn = document.getElementById('correct-btn');
-    if (btn) {
-      btn.innerHTML = 'Clock Fixes Auto-Applied (' + count + ')';
-      btn.style.background = 'var(--info-bg)';
-      btn.style.borderColor = 'var(--accent-soft)';
-      btn.style.color = 'var(--accent-hover)';
-    }
-  }
-}
-
-function enrichTimesheetTimes() {
-  // Stamp actualClockInMs on every clocked shift (worked or auto-corrected)
-  // so we can show exact clock-in times and compute lateness deltas.
-  // Runs after autoCorrectAfterTimesheetLoad so hasClock is fully resolved.
-  const index = buildTimesheetIndex();
-  if (!Object.keys(index).length) return;
-  const START_TOLERANCE = 90 * 60 * 1000; // 1.5 hours (90 mins) for late arrivals
-  const END_TOLERANCE = 15 * 60 * 1000;   // 15 mins for checkout variance
-
-  for (const [nameKey, detail] of Object.entries(state.detailMap)) {
-    const blocks = index[nameKey];
-    if (!blocks) continue;
-    for (const shift of detail.clockin) {
-      if (!shift.hasClock) continue; // only enrich clocked shifts
-      const win = shiftWindowMs(shift);
-      if (!win) continue;
-      // Find the timesheet block that covers this shift
-      const block = blocks.find(b =>
-                                b.startMs <= win.startMs + START_TOLERANCE && b.endMs >= win.endMs - END_TOLERANCE
-      );
-      if (block) {
-              shift.actualClockInMs  = block.startMs;
-              shift.scheduledStartMs = win.startMs;
-              
-              let calculatedLate = Math.round((block.startMs - win.startMs) / 60000);
-              
-              // If they clocked in more than 60 mins early, it's a consecutive shift.
-              // They were already on the clock, so they are exactly "on time" (0 mins late) for this shift.
-              if (calculatedLate < -60) {
-                calculatedLate = 0;
-              }
-              
-              shift.lateMinutes = calculatedLate;
-            }
-    }
-  }
-}
-
 function correctDiscrepancies() {
   if (!state.timesheets || !state.timesheets.length) {
     alert('Please upload the Timesheets report first.');
@@ -4647,35 +4800,6 @@ function removeManualClosure(dateStr) {
 // from their attendance score, while worked shifts still earn credit. Populated
 // from the /live payload's `excused` array (see restoreSnapshotData); there is no
 // local-only fallback, so this list is empty until a live pull has happened.
-
-// "Jun 18, 2026" → "2026-06-18"
-const _MONTHS_EXC = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
-function excDateToISO(dateStr) {
-  const m = dateStr && dateStr.match(/(\w+)\s+(\d+),\s+(\d+)/);
-  if (!m || !_MONTHS_EXC[m[1]]) return null;
-  return `${m[3]}-${_MONTHS_EXC[m[1]]}-${String(m[2]).padStart(2,'0')}`;
-}
-function isExcusedISO(nameKey, iso) {
-  if (!iso || !state.excused.length) return false;
-  for (const e of state.excused) {
-    if (e.nameKey === nameKey && iso >= e.from && iso <= e.to) return true;
-  }
-  return false;
-}
-function isExcused(nameKey, dateStr) {
-  return isExcusedISO(nameKey, excDateToISO(dateStr));
-}
-// Count this worker's covered drops that fall inside an excused range, so they
-// can be removed from the covered-drop penalty in recomputeEmployee().
-function countExcusedCoveredDrops(nameKey, d) {
-  if (!d || !d.shifts || !state.excused.length) return 0;
-  const coveredStatuses = new Set(['accepted', 'approved']);
-  return d.shifts.filter(s =>
-    (s.type === 'drop' || s.type === 'swap') &&
-    s.acceptedBy && coveredStatuses.has((s.status || '').toLowerCase()) &&
-    isExcused(nameKey, s.date)
-  ).length;
-}
 
 function _isoShort(iso) {
   const m = iso && iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -5037,7 +5161,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ── Snapshot Browser (Cloudflare Worker-backed) ──────────────────────────────
-const ANALYZER_WORKER_URL = 'https://berklee.bryandimaio.com';
+// Served by the Scheduler itself (/scheduler/analyzer/), the API is this
+// origin. A standalone copy — GitHub Pages, an exported snapshot file — talks
+// to the Portal.
+const ANALYZER_WORKER_URL = location.pathname.startsWith('/scheduler/analyzer')
+  ? location.origin
+  : 'https://berklee.bryandimaio.com';
 let analyzerDepartment = null;
 let _snapshots = [];
 let _snapLoading = false;
@@ -5283,6 +5412,9 @@ function tryAnalyzerEmbeddedHandshake(timeoutMs) {
 // Release 4F-c updates the Scheduler launcher to answer it, the handshake
 // simply times out and every embedded load keeps using the cookie path below.
 async function establishAnalyzerAuth() {
+  // Served from the API's own origin, the page already has the Scheduler's
+  // session cookie; there is nothing to hand off.
+  try { if (new URL(ANALYZER_WORKER_URL).origin === location.origin) return; } catch (e) { /* fall through */ }
   if (await tryAnalyzerHandoffExchange()) return;
   if (await tryAnalyzerStoredResume()) return;
   await tryAnalyzerEmbeddedHandshake(ANALYZER_HANDSHAKE_TIMEOUT_MS);
