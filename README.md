@@ -1,3 +1,5 @@
+**This site is retired.** The Attendance Analyzer is now built from and served by the AssistantScheduler repository at https://berklee.bryandimaio.com/scheduler/analyzer/; `index.html` here only redirects old links there. The notes below describe the tool itself and still apply.
+
 Open the Web App
 
 Preparing Files for the Attendance Analyzer
